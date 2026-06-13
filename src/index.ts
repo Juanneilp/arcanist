@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { createRequire } from "module";
-const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+import { readFileSync } from "fs";
+import { join } from "path";
+const { version } = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf8")) as { version: string };
 import { setGlobalDispatcher, ProxyAgent, Agent, buildConnector } from "undici";
 import { SocksClient } from "socks";
 import * as tls from "tls";
