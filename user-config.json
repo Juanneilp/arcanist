@@ -1,0 +1,29 @@
+{
+  "apiSettings": {
+    "chain": "sol",
+    "platform": "Pump.fun",
+    "interval": "24h",
+    "limit": 100,
+    "apiFilters": [
+      "has_social",
+      "dexscr_update_link",
+      "not_wash_trading",
+      "burn"
+    ]
+  },
+  "localFilters": {
+    "minMarketCap": 250000,
+    "minVolume24h": 1000000,
+    "minTotalFees": 30,
+    "minSmartDegenCount": 5,
+    "minHolders": 100
+  },
+  "technicalFilters": {
+    "supertrend": {
+      "enabled": true,
+      "timeframe": "15m",
+      "period": 10,
+      "multiplier": 3
+    }
+  }
+}
