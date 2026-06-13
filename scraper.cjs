@@ -76,12 +76,22 @@ async function runScraper() {
             const gasFee = parseFloat(token.gas_fee) || 0; 
             const smartDegenCount = parseInt(token.smart_degen_count, 10) || 0;
             const holderCount = parseInt(token.holder_count, 10) || 0;
+            const creationTimestamp = parseInt(token.creation_timestamp, 10) || parseInt(token.open_timestamp, 10) || 0;
+            
+            let ageInHours = 0;
+            if (creationTimestamp > 0) {
+                const nowUnix = Math.floor(Date.now() / 1000);
+                ageInHours = (nowUnix - creationTimestamp) / 3600;
+            }
+
+            const minTokenAgeHours = localFilters.minTokenAgeHours || 0;
 
             return marketCap >= localFilters.minMarketCap && 
                    volume24h >= localFilters.minVolume24h &&
                    gasFee >= localFilters.minTotalFees &&
                    smartDegenCount >= localFilters.minSmartDegenCount &&
-                   holderCount >= localFilters.minHolders;
+                   holderCount >= localFilters.minHolders &&
+                   ageInHours >= minTokenAgeHours;
         });
 
         console.log(`Found ${fundamentalFilteredTokens.length} tokens matching fundamental criteria.\n`);
