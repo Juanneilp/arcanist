@@ -1,5 +1,5 @@
 const { PublicKey, Connection, Keypair, VersionedTransaction } = require('@solana/web3.js');
-const { DLMM } = require('@meteora-ag/dlmm');
+const DLMM = require('@meteora-ag/dlmm');
 const BN = require('bn.js');
 const fs = require('fs');
 const path = require('path');
@@ -33,7 +33,12 @@ async function getSwapTransaction(quoteResponse, walletPublicKey) {
     return swapTransaction;
 }
 
-async function executeSwap(connection, walletKeypair, swapTransactionBase64) {
+async function executeSwap(connection, walletKeypair, swapTransactionBase64, mode = "dry_run") {
+    if (mode !== "live") {
+        console.log(`[DRY RUN] Simulating swap execution...`);
+        return "simulate_swap_txid_" + Date.now();
+    }
+    
     const swapTransactionBuf = Buffer.from(swapTransactionBase64, 'base64');
     var transaction = VersionedTransaction.deserialize(swapTransactionBuf);
     
@@ -56,7 +61,7 @@ async function executeSwap(connection, walletKeypair, swapTransactionBase64) {
     return txid;
 }
 
-async function swapSolToToken(connection, walletKeypair, tokenMint, solAmount) {
+async function swapSolToToken(connection, walletKeypair, tokenMint, solAmount, mode = "dry_run") {
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
     const amountLamports = Math.floor(solAmount * 1e9);
     
@@ -67,8 +72,8 @@ async function swapSolToToken(connection, walletKeypair, tokenMint, solAmount) {
     console.log(`Building swap transaction...`);
     const swapTx = await getSwapTransaction(quoteResponse, walletKeypair.publicKey);
     
-    console.log(`Executing swap transaction...`);
-    const txid = await executeSwap(connection, walletKeypair, swapTx);
+    console.log(`Executing swap transaction (${mode.toUpperCase()})...`);
+    const txid = await executeSwap(connection, walletKeypair, swapTx, mode);
     console.log(`Swap successful! Transaction ID: ${txid}`);
     
     return {
@@ -90,7 +95,7 @@ async function getSolPriceUsd() {
     return 150; 
 }
 
-async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountUi) {
+async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountUi, mode = "dry_run") {
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
     
     console.log(`Getting quote for swapping ${tokenAmountUi} of ${tokenMint} to SOL...`);
@@ -109,8 +114,8 @@ async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountU
     if (usdValue >= threshold) {
         console.log(`Value >= $${threshold}. Building swap transaction...`);
         const swapTx = await getSwapTransaction(quoteResponse, walletKeypair.publicKey);
-        console.log(`Executing dust sweep swap...`);
-        const txid = await executeSwap(connection, walletKeypair, swapTx);
+        console.log(`Executing dust sweep swap (${mode.toUpperCase()})...`);
+        const txid = await executeSwap(connection, walletKeypair, swapTx, mode);
         console.log(`Dust Sweep successful! Transaction ID: ${txid}`);
         return { txid, expectedSolOut, usdValue };
     } else {
@@ -123,21 +128,48 @@ async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountU
 async function fetchMeteoraPools(mintA, mintB) {
     console.log(`Searching for Meteora DLMM pools for ${mintA} and ${mintB}...`);
     try {
-        const response = await fetch(`https://dlmm.datapi.meteora.ag/pools`);
-        const pools = await response.json();
+        // 1. Reliable Data Source: Use DexScreener to find all Meteora pairs for this token
+        const dsRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mintA}`);
+        const dsData = await dsRes.json();
         
-        const matchingPools = pools.filter(p => 
-            (p.mint_x === mintA && p.mint_y === mintB) || 
-            (p.mint_x === mintB && p.mint_y === mintA)
-        );
+        let poolAddresses = [];
+        if (dsData && dsData.pairs) {
+            const meteoraPairs = dsData.pairs.filter(p => 
+                p.dexId === 'meteora' && 
+                ((p.baseToken.address === mintA && p.quoteToken.address === mintB) || 
+                 (p.baseToken.address === mintB && p.quoteToken.address === mintA))
+            );
+            poolAddresses = meteoraPairs.map(p => p.pairAddress);
+        }
+        
+        const matchingPools = [];
+        // 2. Fetch specific pool details from Meteora Datapi
+        for (const address of poolAddresses) {
+            try {
+                const pRes = await fetch(`https://dlmm.datapi.meteora.ag/pools/${address}`);
+                if (pRes.ok) {
+                    const poolData = await pRes.json();
+                    if (poolData && poolData.address) {
+                        // Ensure compatibility with existing properties (liquidity is tvl, token_x etc)
+                        poolData.liquidity = poolData.tvl;
+                        poolData.mint_x = poolData.token_x.address;
+                        poolData.mint_y = poolData.token_y.address;
+                        matchingPools.push(poolData);
+                    }
+                }
+            } catch (e) {
+                console.error(`Failed to fetch specific pool ${address}`, e);
+            }
+        }
+        
         return matchingPools;
     } catch (e) {
-        console.error("Failed to fetch pools from Meteora Datapi.", e);
+        console.error("Failed to fetch pools from Data Sources.", e);
         return [];
     }
 }
 
-async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, solLamports, binRange, strategyOptions) {
+async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, solLamports, minRange, maxRange, strategyOptions, mode = "dry_run") {
     const poolAddress = new PublicKey(poolAddressStr);
     console.log(`Initializing DLMM Pool instance for ${poolAddressStr}...`);
     const dlmmPool = await DLMM.create(connection, poolAddress);
@@ -149,13 +181,29 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     let minBin, maxBin, newBalanceX, newBalanceY;
     
     if (isSolX) {
-        minBin = activeBin.binId;
-        maxBin = activeBin.binId + binRange;
+        // SOL is Token X -> Buy Y (Meme)
+        // Cheap Meme = higher Y per X = higher binId. Expensive Meme = lower binId.
+        // User maxRange (+1%) means expensive Meme -> lower binId. 
+        // User minRange (-90%) means cheap Meme -> higher binId.
+        const rawMin = activeBin.binId - maxRange;
+        const rawMax = activeBin.binId - minRange;
+        
+        // We provide Token X, so we can only provide in bins >= activeBin
+        minBin = Math.max(rawMin, activeBin.binId);
+        maxBin = Math.max(rawMax, activeBin.binId);
+        
         newBalanceX = new BN(solLamports);
         newBalanceY = new BN(0);
     } else {
-        minBin = activeBin.binId - binRange;
-        maxBin = activeBin.binId;
+        // SOL is Token Y -> Buy X (Meme)
+        // Cheap Meme = lower Y per X = lower binId. Expensive Meme = higher binId.
+        const rawMin = activeBin.binId + minRange;
+        const rawMax = activeBin.binId + maxRange;
+        
+        // We provide Token Y, so we can only provide in bins <= activeBin
+        minBin = Math.min(rawMin, activeBin.binId);
+        maxBin = Math.min(rawMax, activeBin.binId);
+        
         newBalanceX = new BN(0);
         newBalanceY = new BN(solLamports);
     }
@@ -176,11 +224,16 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
             }
         });
         
-        console.log(`Transaction built. Note: Execution is commented out for safety.`);
-        // const txid = await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
+        if (mode === "live") {
+            console.log(`[LIVE] Sending Add Liquidity transaction...`);
+            const txid = await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
+            console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
+        } else {
+            console.log(`[DRY RUN] Transaction built. Execution skipped.`);
+        }
         
         return { 
-            status: "simulate_success", 
+            status: mode === "live" ? "success" : "simulate_success", 
             positionPubKey: newPositionKeypair.publicKey.toBase58() 
         };
     } catch (e) {
@@ -189,7 +242,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     }
 }
 
-async function removeLiquidity(connection, walletKeypair, poolAddressStr, positionPubKeyStr) {
+async function removeLiquidity(connection, walletKeypair, poolAddressStr, positionPubKeyStr, mode = "dry_run") {
     const poolAddress = new PublicKey(poolAddressStr);
     const positionPubKey = new PublicKey(positionPubKeyStr);
     
@@ -205,9 +258,14 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
             shouldClaimAndClose: true
         });
         
-        console.log(`Remove transaction built. Note: Execution is commented out for safety.`);
-        // const txid = await connection.sendTransaction(removeTx, [walletKeypair]);
-        return { status: "simulate_success" };
+        if (mode === "live") {
+            console.log(`[LIVE] Sending Remove Liquidity transaction...`);
+            const txid = await connection.sendTransaction(removeTx, [walletKeypair]);
+            console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
+        } else {
+            console.log(`[DRY RUN] Transaction built. Execution skipped.`);
+        }
+        return { status: mode === "live" ? "success" : "simulate_success" };
     } catch (e) {
         console.error("Error removing liquidity:", e);
         throw e;

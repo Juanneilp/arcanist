@@ -1,4 +1,5 @@
 {
+  "botMode": "dry_run",
   "apiSettings": {
     "chain": "sol",
     "platform": "Pump.fun",
@@ -29,7 +30,10 @@
   },
   "meteoraConfig": {
     "solAmountToLP": 0.01,
-    "binRange": 10,
+    "minBinStep": 80,
+    "maxBinStep": 125,
+    "minRange": -90,
+    "maxRange": 1,
     "strategyType": 0
   },
   "monitoringConfig": {
@@ -38,7 +42,20 @@
     "autoEntryEnabled": true
   },
   "exitConfig": {
-    "minUsdDustValueToSwap": 0.5
+    "minUsdDustValueToSwap": 0.5,
+    "rsi": {
+      "period": 2,
+      "upperLimit": 90
+    },
+    "bb": {
+      "period": 20,
+      "multiplier": 2
+    },
+    "macd": {
+      "fast": 12,
+      "slow": 26,
+      "signal": 9
+    }
   },
   "aiConfig": {
     "provider": "openrouter",

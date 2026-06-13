@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const STATE_FILE = path.join(__dirname, '..', 'active_positions.json');
+const TRADE_LOG_FILE = path.join(__dirname, '..', 'trade_history.json');
 
 function readState() {
     if (!fs.existsSync(STATE_FILE)) {
@@ -44,10 +45,29 @@ function updatePosition(positionPubKey, updateData) {
     }
 }
 
+function logTrade(action, positionData) {
+    let history = [];
+    if (fs.existsSync(TRADE_LOG_FILE)) {
+        try {
+            const raw = fs.readFileSync(TRADE_LOG_FILE, 'utf-8');
+            history = JSON.parse(raw);
+        } catch (e) {}
+    }
+    
+    history.push({
+        action, // 'ENTRY' or 'EXIT'
+        timestamp: new Date().toISOString(),
+        ...positionData
+    });
+    
+    fs.writeFileSync(TRADE_LOG_FILE, JSON.stringify(history, null, 2));
+}
+
 module.exports = {
     readState,
     saveState,
     addPosition,
     removePosition,
-    updatePosition
+    updatePosition,
+    logTrade
 };
