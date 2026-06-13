@@ -38,7 +38,9 @@
   },
   "monitoringConfig": {
     "checkIntervalSeconds": 30,
-    "maxActivePositions": 2,
+    "monitoringIntervalMinutes": 20,
+    "scraperIntervalMinutes": 5,
+    "maxActivePositions": 3,
     "autoEntryEnabled": true
   },
   "exitConfig": {

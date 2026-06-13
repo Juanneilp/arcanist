@@ -10,6 +10,8 @@ const { readState, addPosition, removePosition, logTrade } = require('./state.cj
 const { screenCandidates } = require('./ai-agent.cjs');
 const { sendMessage } = require('./telegram.cjs');
 const { calculateRSI, calculateMACD, calculateBollingerBands } = require('./indicators.cjs');
+const cron = require('node-cron');
+const { runScraper } = require('./scraper.cjs');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -184,10 +186,70 @@ async function runBot() {
     const autoEntry = userConfig.monitoringConfig?.autoEntryEnabled ?? true;
     const maxPositions = userConfig.monitoringConfig?.maxActivePositions || 2;
 
-    // Start Monitoring Loop
+    // Start Monitoring Loop (For Exit Conditions)
     const checkInterval = (userConfig.monitoringConfig?.checkIntervalSeconds || 30) * 1000;
     setInterval(() => monitoringLoop(connection, walletKeypair), checkInterval);
-    console.log(`Started Monitoring Loop (Interval: ${checkInterval/1000}s)`);
+    console.log(`Started Exit Monitoring Loop (Interval: ${checkInterval/1000}s)`);
+
+    // --- Telegram Report Cron Job ---
+    const reportIntervalMinutes = userConfig.monitoringConfig?.monitoringIntervalMinutes || 20;
+    let reportCronExpression = `*/${reportIntervalMinutes} * * * *`;
+    if (reportIntervalMinutes < 1) reportCronExpression = `* * * * *`;
+    
+    cron.schedule(reportCronExpression, () => {
+        const currentActivePositions = readState();
+        if (currentActivePositions.length === 0) {
+            sendMessage(`ℹ️ *Status Report*\nCurrently 0 active positions.`);
+        } else {
+            let msg = `📊 *Status Report (${currentActivePositions.length} Active Positions)*\n\n`;
+            currentActivePositions.forEach((pos, i) => {
+                msg += `${i+1}. *${pos.tokenSymbol}*\n   Pool: \`${pos.poolAddress}\`\n   Invested: ${pos.investedSol} SOL\n\n`;
+            });
+            sendMessage(msg);
+        }
+    });
+    console.log(`Started Telegram Report Cron Job (Interval: ${reportIntervalMinutes}m)`);
+
+    // --- Scraper Cron Job ---
+    const scraperIntervalMinutes = userConfig.monitoringConfig?.scraperIntervalMinutes || 5;
+    let cronExpression = `*/${scraperIntervalMinutes} * * * *`;
+    if (scraperIntervalMinutes < 1) cronExpression = `* * * * *`;
+    
+    let isScraperRunning = false;
+    
+    cron.schedule(cronExpression, async () => {
+        if (isScraperRunning) {
+            console.log(`[Scraper] Scraper is still running from a previous schedule. Skipping this run to prevent overlap.`);
+            return;
+        }
+        
+        try {
+            isScraperRunning = true;
+            const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
+            let currentConfig;
+            try {
+                currentConfig = JSON.parse(fs.readFileSync(currentConfigPath, 'utf-8'));
+            } catch (e) {
+                return;
+            }
+            
+            const currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || 2;
+            const currentActivePositions = readState();
+            
+            if (currentActivePositions.length >= currentMaxPositions) {
+                console.log(`[Scraper] Active positions (${currentActivePositions.length}) reached max limit (${currentMaxPositions}). Skipping scraper.`);
+                return;
+            }
+            
+            console.log(`[Scraper] Starting scheduled scrape (Cron: ${cronExpression})...`);
+            await runScraper();
+        } catch (e) {
+            console.error('[Scraper] Error in cron job:', e);
+        } finally {
+            isScraperRunning = false;
+        }
+    });
+    console.log(`Started Scraper Cron Job (Interval: ${scraperIntervalMinutes}m)`);
 
     // --- Entry Logic ---
     if (autoEntry) {
