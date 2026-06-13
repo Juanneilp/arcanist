@@ -2,21 +2,102 @@ const { exec } = require('child_process');
 const util = require('util');
 const fs = require('fs');
 const path = require('path');
-const { calculateSupertrend } = require('./supertrend.cjs');
 
-// Load environment variables from .env file
-require('dotenv').config();
-
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const execAsync = util.promisify(exec);
 
-// Load User Config
-const configPath = path.join(__dirname, 'user-config.json');
+// --- SUPERTREND LOGIC ---
+function calculateATR(data, period) {
+    let atr = [];
+    let tr = [];
+    
+    for (let i = 0; i < data.length; i++) {
+        if (i === 0) {
+            tr.push(data[i].high - data[i].low);
+        } else {
+            const highLow = data[i].high - data[i].low;
+            const highClose = Math.abs(data[i].high - data[i - 1].close);
+            const lowClose = Math.abs(data[i].low - data[i - 1].close);
+            tr.push(Math.max(highLow, highClose, lowClose));
+        }
+    }
+    
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+        sum += tr[i];
+    }
+    
+    for (let i = 0; i < period - 1; i++) {
+        atr.push(null);
+    }
+    atr.push(sum / period);
+    
+    for (let i = period; i < data.length; i++) {
+        atr.push((atr[i - 1] * (period - 1) + tr[i]) / period);
+    }
+    
+    return atr;
+}
+
+function calculateSupertrend(data, period, multiplier) {
+    if (!data || data.length < period) return null;
+    
+    const atr = calculateATR(data, period);
+    let upperband = new Array(data.length).fill(null);
+    let lowerband = new Array(data.length).fill(null);
+    let supertrend = new Array(data.length).fill(null);
+    let trend = new Array(data.length).fill(1); 
+    
+    for (let i = period; i < data.length; i++) {
+        const hl2 = (data[i].high + data[i].low) / 2;
+        const basicUb = hl2 + (multiplier * atr[i]);
+        const basicLb = hl2 - (multiplier * atr[i]);
+        
+        if (i === period) {
+            upperband[i] = basicUb;
+            lowerband[i] = basicLb;
+            supertrend[i] = upperband[i]; 
+        } else {
+            if (basicUb < upperband[i - 1] || data[i - 1].close > upperband[i - 1]) {
+                upperband[i] = basicUb;
+            } else {
+                upperband[i] = upperband[i - 1];
+            }
+            if (basicLb > lowerband[i - 1] || data[i - 1].close < lowerband[i - 1]) {
+                lowerband[i] = basicLb;
+            } else {
+                lowerband[i] = lowerband[i - 1];
+            }
+        }
+        
+        if (i === period) {
+            trend[i] = data[i].close > upperband[i] ? 1 : -1;
+        } else {
+            if (supertrend[i - 1] === upperband[i - 1] && data[i].close > upperband[i]) {
+                trend[i] = 1;
+            } else if (supertrend[i - 1] === lowerband[i - 1] && data[i].close < lowerband[i]) {
+                trend[i] = -1;
+            } else {
+                trend[i] = trend[i - 1];
+            }
+        }
+        
+        if (trend[i] === 1) {
+            supertrend[i] = lowerband[i];
+        } else {
+            supertrend[i] = upperband[i];
+        }
+    }
+    return { trend, supertrend, upperband, lowerband };
+}
+
+// --- SCRAPER LOGIC ---
+const configPath = path.join(__dirname, '..', 'user-config.json');
 let config;
 try {
-    const rawConfig = fs.readFileSync(configPath, 'utf-8');
-    config = JSON.parse(rawConfig);
+    config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 } catch (error) {
-    console.error("Failed to read or parse user-config.json. Make sure the file exists and is valid JSON.");
+    console.error("Failed to read user-config.json.");
     process.exit(1);
 }
 
@@ -25,18 +106,11 @@ const localFilters = config.localFilters;
 const techFilters = config.technicalFilters || {};
 
 console.log(`Starting GMGN Scraper...`);
-console.log(`Using Configuration from user-config.json\n`);
-
 let apiFiltersStr = '';
 if (apiSettings.apiFilters && Array.isArray(apiSettings.apiFilters)) {
     apiSettings.apiFilters.forEach(filter => {
         apiFiltersStr += ` --filter ${filter}`;
     });
-}
-
-if (!process.env.GMGN_API_KEY) {
-    console.warn("WARNING: GMGN_API_KEY is not defined in your environment or .env file.");
-    console.warn("Falling back to the public demo API key ('gmgn_solbscbaseethmonadtron'). Rate limits may apply.\n");
 }
 
 const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
@@ -47,9 +121,7 @@ async function fetchKlineData(address, timeframe) {
     try {
         const { stdout } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 10 });
         const response = JSON.parse(stdout);
-        if (response.list) {
-            return response.list;
-        }
+        if (response.list) return response.list;
         return null;
     } catch (e) {
         return null;
@@ -61,15 +133,9 @@ async function runScraper() {
     try {
         const { stdout } = await execAsync(fetchTrendingCommand, { maxBuffer: 1024 * 1024 * 10 });
         const response = JSON.parse(stdout);
-        
-        if (response.code !== 0) {
-            console.error(`API Error: ${response.msg}`);
-            return;
-        }
+        if (response.code !== 0) return console.error(`API Error: ${response.msg}`);
 
         const tokens = response.data.rank || [];
-        console.log(`Fetched ${tokens.length} trending tokens from the API. Applying strict local fundamental filters...`);
-
         const fundamentalFilteredTokens = tokens.filter(token => {
             const marketCap = parseFloat(token.market_cap) || 0;
             const volume24h = parseFloat(token.volume) || 0; 
@@ -80,28 +146,20 @@ async function runScraper() {
             
             let ageInHours = 0;
             if (creationTimestamp > 0) {
-                const nowUnix = Math.floor(Date.now() / 1000);
-                ageInHours = (nowUnix - creationTimestamp) / 3600;
+                ageInHours = (Math.floor(Date.now() / 1000) - creationTimestamp) / 3600;
             }
-
-            const minTokenAgeHours = localFilters.minTokenAgeHours || 0;
 
             return marketCap >= localFilters.minMarketCap && 
                    volume24h >= localFilters.minVolume24h &&
                    gasFee >= localFilters.minTotalFees &&
                    smartDegenCount >= localFilters.minSmartDegenCount &&
                    holderCount >= localFilters.minHolders &&
-                   ageInHours >= minTokenAgeHours;
+                   ageInHours >= (localFilters.minTokenAgeHours || 0);
         });
 
-        console.log(`Found ${fundamentalFilteredTokens.length} tokens matching fundamental criteria.\n`);
-
         const finalTokens = [];
-
         if (techFilters.supertrend && techFilters.supertrend.enabled) {
             const stConf = techFilters.supertrend;
-            console.log(`Running Technical Analysis (Supertrend ${stConf.timeframe}, Period: ${stConf.period}, Mult: ${stConf.multiplier})...`);
-            
             for (let i = 0; i < fundamentalFilteredTokens.length; i++) {
                 const token = fundamentalFilteredTokens[i];
                 process.stdout.write(`[${i+1}/${fundamentalFilteredTokens.length}] Checking chart for ${token.symbol}... `);
@@ -112,16 +170,6 @@ async function runScraper() {
                     continue;
                 }
 
-                // Format K-line data
-                const formattedData = klines.map(k => ({
-                    open: parseFloat(k.open),
-                    high: parseFloat(k.high),
-                    low: parseFloat(k.low),
-                    close: parseFloat(k.close)
-                })).reverse(); // Reverse if API returns newest first, wait! 
-                
-                // Let's verify sort order. GMGN API usually returns oldest first or newest first.
-                // We'll sort by time just to be absolutely sure.
                 const sortedKlines = klines.sort((a, b) => a.time - b.time).map(k => ({
                     open: parseFloat(k.open),
                     high: parseFloat(k.high),
@@ -149,30 +197,20 @@ async function runScraper() {
                 }
             }
         } else {
-            // Supertrend disabled, use all filtered tokens
             finalTokens.push(...fundamentalFilteredTokens);
         }
 
-        console.log(`\n==================================================`);
-        console.log(`Found ${finalTokens.length} tokens matching ALL Fundamental and Technical criteria:\n`);
-
-        finalTokens.forEach((token, index) => {
-            console.log(`[${index + 1}] ${token.symbol} (${token.name})`);
-            console.log(`    Address:       ${token.address}`);
-            console.log(`    Market Cap:    $${Number(token.market_cap).toLocaleString()}`);
-            console.log(`    Volume 24H:    $${Number(token.volume).toLocaleString()}`);
-            console.log(`    Holders:       ${token.holder_count}`);
-            if (token.latestSupertrend) {
-                console.log(`    Current Price: $${token.latestPrice}`);
-                console.log(`    Supertrend:    $${token.latestSupertrend} (GREEN/BULLISH)`);
-            }
-            console.log(`--------------------------------------------------`);
-        });
-
+        const outputPath = path.join(__dirname, '..', 'candidates.json');
+        fs.writeFileSync(outputPath, JSON.stringify(finalTokens, null, 2));
+        console.log(`\n[+] Saved ${finalTokens.length} candidates to ${outputPath}`);
     } catch (e) {
-        console.error("Execution failed.");
-        console.error(e);
+        console.error("Execution failed.", e);
     }
 }
 
-runScraper();
+// Allow importing or running directly
+if (require.main === module) {
+    runScraper();
+} else {
+    module.exports = { runScraper };
+}

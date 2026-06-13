@@ -20,6 +20,10 @@
     "publish:provenance": "npm publish --provenance --access public"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@meteora-ag/dlmm": "^1.9.10",
+    "@solana/web3.js": "^1.98.4",
+    "bs58": "^6.0.0",
     "commander": "^12.1.0",
     "dotenv": "^16.4.5",
     "socks": "^2.8.7",
