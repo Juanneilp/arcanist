@@ -210,7 +210,6 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     const newPositionKeypair = Keypair.generate();
     
     // Solana inner instruction reallocation limit allows max ~69 bins in a single InitializePosition transaction.
-    // Also, the overall transaction size limit is 1232 bytes, which means we cannot bundle >69 bins into 1 transaction either.
     if (maxBin - minBin > 69) {
         console.warn(`[Warning] Range width (${maxBin - minBin} bins) exceeds single TX limit (69 bins). Capping range.`);
         if (isSolX) {
