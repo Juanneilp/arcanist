@@ -237,7 +237,8 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
         
         return { 
             status: mode === "live" ? "success" : "simulate_success", 
-            positionPubKey: newPositionKeypair.publicKey.toBase58() 
+            positionPubKey: newPositionKeypair.publicKey.toBase58(),
+            activeBinPrice: activeBin.price
         };
     } catch (e) {
         console.error("Error adding liquidity:", e);

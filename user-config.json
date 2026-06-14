@@ -41,11 +41,14 @@
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
     "maxActivePositions": 3,
-    "entryMode": "auto",
+    "entryMode": "manual",
     "closeMode": "auto"
   },
   "exitConfig": {
     "minUsdDustValueToSwap": 0.5,
+    "tpPercentage": 0,
+    "slPercentage": 0,
+    "maxHoldHours": 24,
     "rsi": {
       "period": 2,
       "upperLimit": 90

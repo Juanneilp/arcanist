@@ -41,13 +41,18 @@ async function evaluateExitCondition(position) {
     }
     
     const exitConf = userConfig.exitConfig || {};
+    const tpPercentage = exitConf.tpPercentage !== undefined ? exitConf.tpPercentage : 50;
+    const slPercentage = exitConf.slPercentage !== undefined ? exitConf.slPercentage : 20;
+    const maxHoldHours = exitConf.maxHoldHours !== undefined ? exitConf.maxHoldHours : 24;
     const rsiConf = exitConf.rsi || { period: 2, upperLimit: 90 };
     const bbConf = exitConf.bb || { period: 20, multiplier: 2 };
     const macdConf = exitConf.macd || { fast: 12, slow: 26, signal: 9 };
     
     const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
     const chain = userConfig.apiSettings?.chain || 'sol';
-    const cmd = `GMGN_API_KEY=${apiKey} npx gmgn-cli market kline --chain ${chain} --address ${position.tokenMint} --resolution 15m --raw`;
+    // Only need ~100 candles for MACD(26) to stabilize. 100 * 15m = 25 hours. We fetch last 48 hours to be safe.
+    const fromTimestamp = Math.floor(Date.now() / 1000) - (48 * 60 * 60);
+    const cmd = `GMGN_API_KEY=${apiKey} npx gmgn-cli market kline --chain ${chain} --address ${position.tokenMint} --resolution 15m --from ${fromTimestamp} --raw`;
     
     try {
         const { stdout } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 10 });
@@ -74,6 +79,26 @@ async function evaluateExitCondition(position) {
         
         if (currentRsi === null || currentBbUpper === null || currentMacdHist === null || prevMacdHist === null) {
             return false;
+        }
+        
+        // Timeout check
+        const durationHours = (Date.now() - position.timestamp) / 3600000;
+        if (maxHoldHours > 0 && durationHours >= maxHoldHours) {
+            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Timeout hit (${durationHours.toFixed(2)}h >= ${maxHoldHours}h)`);
+            return true;
+        }
+
+        // PnL check
+        if (position.entryPriceUsd) {
+            const pnlPercentage = ((currentClose - position.entryPriceUsd) / position.entryPriceUsd) * 100;
+            if (tpPercentage > 0 && pnlPercentage >= tpPercentage) {
+                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Take Profit hit (+${pnlPercentage.toFixed(2)}% >= ${tpPercentage}%)`);
+                return true;
+            }
+            if (slPercentage > 0 && pnlPercentage <= -slPercentage) {
+                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Stop Loss hit (${pnlPercentage.toFixed(2)}% <= -${slPercentage}%)`);
+                return true;
+            }
         }
         
         const rsiConditionMet = currentRsi > rsiConf.upperLimit;
@@ -214,13 +239,28 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                         continue;
                     }
                     
+                    let entryPriceUsd = null;
+                    try {
+                        const res = await fetch(`https://price.jup.ag/v6/price?ids=${token.address}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.data && data.data[token.address]) {
+                                entryPriceUsd = data.data[token.address].price;
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`Failed to fetch Jupiter price for ${token.symbol}:`, e.message);
+                    }
+                    
                     const newPos = {
                         positionPubKey: result.positionPubKey,
                         poolAddress: targetPool.address,
                         tokenMint: token.address,
                         tokenSymbol: token.symbol,
                         openedBy: "auto",
-                        investedSol: botConfig.solAmountToLP
+                        investedSol: botConfig.solAmountToLP,
+                        entryBinPrice: result.activeBinPrice,
+                        entryPriceUsd: entryPriceUsd
                     };
                     
                     addPosition(newPos);
