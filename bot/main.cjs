@@ -219,7 +219,33 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                 console.log(`\n==================================================`);
                 console.log(`Processing Token: ${token.symbol} (${token.address})`);
                 
+                let solToDeploy = 0;
                 try {
+                    let walletBalanceUi = 0;
+                    if (botMode === 'dry_run' && (!process.env.WALLET_PRIVATE_KEY || process.env.WALLET_PRIVATE_KEY === 'your_wallet_private_key_base58')) {
+                        walletBalanceUi = 5.0; 
+                    } else {
+                        walletBalanceUi = (await connection.getBalance(walletKeypair.publicKey)) / 1e9;
+                    }
+
+                    const maxSolPerPosition = botConfig.maxSolPerPosition || 0.15;
+                    const minSolToOpen = botConfig.minSolToOpen || 0.21;
+                    const gasReserve = botConfig.gasReserve || 0.1;
+                    const refundableReserve = botConfig.refundableReserve || 0.05;
+
+                    if (walletBalanceUi < minSolToOpen) {
+                        console.log(`[Skip] Wallet balance (${walletBalanceUi.toFixed(4)} SOL) is below minSolToOpen (${minSolToOpen} SOL).`);
+                        continue;
+                    }
+
+                    const availableBalance = Math.max(0, walletBalanceUi - gasReserve - refundableReserve);
+                    solToDeploy = Math.min(availableBalance, maxSolPerPosition);
+
+                    if (solToDeploy <= 0) {
+                        console.log(`[Skip] Insufficient balance for deployment after gas and refundable reserves.`);
+                        continue;
+                    }
+
                     const pools = await fetchMeteoraPools(token.address, WSOL_MINT);
                     const filteredPools = pools.filter(p => p.bin_step >= botConfig.minBinStep && p.bin_step <= botConfig.maxBinStep);
                     
@@ -229,7 +255,7 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                     }
                     
                     const targetPool = filteredPools.sort((a, b) => b.liquidity - a.liquidity)[0];
-                    const solLamportsToLP = Math.floor(botConfig.solAmountToLP * 1e9);
+                    const solLamportsToLP = Math.floor(solToDeploy * 1e9);
                     
                     console.log(`[${botMode.toUpperCase()}] Adding Single-Sided SOL Liquidity to ${targetPool.address} (Bin Step: ${targetPool.bin_step})...`);
                     const result = await addLiquidity(connection, walletKeypair, targetPool.address, WSOL_MINT, solLamportsToLP, botConfig.minRange, botConfig.maxRange, { type: botConfig.strategyType }, botMode);
@@ -259,7 +285,7 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                         tokenMint: token.address,
                         tokenSymbol: token.symbol,
                         openedBy: "auto",
-                        investedSol: botConfig.solAmountToLP,
+                        investedSol: solToDeploy,
                         entryBinPrice: result.activeBinPrice,
                         entryPriceUsd: entryPriceUsd
                     };
@@ -327,7 +353,7 @@ async function runBot() {
         }
     }
 
-    const botConfig = userConfig.meteoraConfig || { solAmountToLP: 0.01, minBinStep: 80, maxBinStep: 125, minRange: 86, maxRange: 94, strategyType: 0 };
+    const botConfig = userConfig.meteoraConfig || { maxSolPerPosition: 0.15, minSolToOpen: 0.21, gasReserve: 0.1, refundableReserve: 0.05, minBinStep: 80, maxBinStep: 125, minRange: 86, maxRange: 94, strategyType: 0 };
     const entryMode = userConfig.monitoringConfig?.entryMode || "auto";
     const autoEntry = entryMode === "auto";
     const maxPositions = userConfig.monitoringConfig?.maxActivePositions || 2;

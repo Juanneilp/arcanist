@@ -29,7 +29,10 @@
     }
   },
   "meteoraConfig": {
-    "solAmountToLP": 0.01,
+    "maxSolPerPosition": 0.15,
+    "minSolToOpen": 0.21,
+    "gasReserve": 0.1,
+    "refundableReserve": 0.2,
     "minBinStep": 80,
     "maxBinStep": 125,
     "minRange": -90,
