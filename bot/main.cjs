@@ -241,7 +241,8 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                     
                     let entryPriceUsd = null;
                     try {
-                        const res = await fetch(`https://price.jup.ag/v6/price?ids=${token.address}`);
+                        const { fetchWithRetry } = require('./api-utils.cjs');
+                        const res = await fetchWithRetry(`https://price.jup.ag/v6/price?ids=${token.address}`);
                         if (res.ok) {
                             const data = await res.json();
                             if (data.data && data.data[token.address]) {

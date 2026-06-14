@@ -1,0 +1,52 @@
+const fetch = require('node-fetch'); // using native fetch, but we'll use global.fetch just in case
+const _fetch = typeof fetch !== 'undefined' ? fetch : global.fetch;
+
+async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            const response = await _fetch(url, options);
+            if (!response.ok) {
+                // Rate limit (429) or Server error (5xx)
+                if (response.status === 429 || response.status >= 500) {
+                    throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
+                }
+                // Return response for other 4xx errors as retry won't help
+                return response;
+            }
+            return response;
+        } catch (error) {
+            attempt++;
+            if (attempt >= maxRetries) {
+                throw new Error(`Failed to fetch ${url} after ${maxRetries} attempts: ${error.message}`);
+            }
+            const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+            console.log(`[API Retry] Fetch failed. Attempt ${attempt}/${maxRetries}. Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+async function rpcRetryWrapper(operation, maxRetries = 3) {
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        try {
+            return await operation();
+        } catch (error) {
+            attempt++;
+            if (attempt >= maxRetries) {
+                throw new Error(`RPC operation failed after ${maxRetries} attempts: ${error.message}`);
+            }
+            
+            console.log(`[RPC Retry] Operation failed: ${error.message}`);
+            const delay = Math.pow(2, attempt - 1) * 1000; 
+            console.log(`[RPC Retry] Attempt ${attempt}/${maxRetries}. Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+module.exports = {
+    fetchWithRetry,
+    rpcRetryWrapper
+};

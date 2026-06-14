@@ -3,11 +3,12 @@ const DLMM = require('@meteora-ag/dlmm');
 const BN = require('bn.js');
 const fs = require('fs');
 const path = require('path');
+const { fetchWithRetry, rpcRetryWrapper } = require('./api-utils.cjs');
 
 // --- JUPITER LOGIC ---
 async function getQuote(inputMint, outputMint, amountLamports, slippageBps = 50) {
     const url = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountLamports}&slippageBps=${slippageBps}`;
-    const response = await fetch(url);
+    const response = await fetchWithRetry(url);
     if (!response.ok) {
         throw new Error(`Jupiter Quote API Error: ${response.statusText}`);
     }
@@ -17,7 +18,7 @@ async function getQuote(inputMint, outputMint, amountLamports, slippageBps = 50)
 
 async function getSwapTransaction(quoteResponse, walletPublicKey) {
     const url = 'https://quote-api.jup.ag/v6/swap';
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -47,15 +48,19 @@ async function executeSwap(connection, walletKeypair, swapTransactionBase64, mod
     const latestBlockHash = await connection.getLatestBlockhash();
     const rawTransaction = transaction.serialize();
     
-    const txid = await connection.sendRawTransaction(rawTransaction, {
-        skipPreflight: true,
-        maxRetries: 2
+    const txid = await rpcRetryWrapper(async () => {
+        return await connection.sendRawTransaction(rawTransaction, {
+            skipPreflight: true,
+            maxRetries: 2
+        });
     });
     
-    await connection.confirmTransaction({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: txid
+    await rpcRetryWrapper(async () => {
+        await connection.confirmTransaction({
+            blockhash: latestBlockHash.blockhash,
+            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+            signature: txid
+        });
     });
     
     return txid;
@@ -84,7 +89,7 @@ async function swapSolToToken(connection, walletKeypair, tokenMint, solAmount, m
 
 async function getSolPriceUsd() {
     try {
-        const response = await fetch("https://price.jup.ag/v6/price?ids=SOL");
+        const response = await fetchWithRetry("https://price.jup.ag/v6/price?ids=SOL");
         if (response.ok) {
             const data = await response.json();
             return data.data.SOL.price;
@@ -129,7 +134,7 @@ async function fetchMeteoraPools(mintA, mintB) {
     console.log(`Searching for Meteora DLMM pools for ${mintA} and ${mintB}...`);
     try {
         // 1. Reliable Data Source: Use DexScreener to find all Meteora pairs for this token
-        const dsRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mintA}`);
+        const dsRes = await fetchWithRetry(`https://api.dexscreener.com/latest/dex/tokens/${mintA}`);
         const dsData = await dsRes.json();
         
         let poolAddresses = [];
@@ -146,7 +151,7 @@ async function fetchMeteoraPools(mintA, mintB) {
         // 2. Fetch specific pool details from Meteora Datapi
         for (const address of poolAddresses) {
             try {
-                const pRes = await fetch(`https://dlmm.datapi.meteora.ag/pools/${address}`);
+                const pRes = await fetchWithRetry(`https://dlmm.datapi.meteora.ag/pools/${address}`);
                 if (pRes.ok) {
                     const poolData = await pRes.json();
                     if (poolData && poolData.address) {
@@ -229,7 +234,11 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
             });
             
             console.log(`[LIVE] Sending Add Liquidity transaction...`);
-            const txid = await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
+            const txid = await rpcRetryWrapper(async () => {
+                // If this fails due to blockhash, dlmmPool might internally update it on retry, 
+                // but connection.sendTransaction usually handles blockhash fetching itself.
+                return await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
+            });
             console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
         } else {
             console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);
@@ -264,7 +273,9 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
             });
             
             console.log(`[LIVE] Sending Remove Liquidity transaction...`);
-            const txid = await connection.sendTransaction(removeTx, [walletKeypair]);
+            const txid = await rpcRetryWrapper(async () => {
+                return await connection.sendTransaction(removeTx, [walletKeypair]);
+            });
             console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
         } else {
             console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);
