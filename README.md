@@ -1,65 +1,73 @@
 # Arcanist DLMM Bot
 
-Arcanist DLMM Bot adalah bot otomatis untuk jaringan Solana yang melakukan *scraping* token yang sedang tren menggunakan API GMGN, memfilternya berdasarkan fundamental dan analisis teknikal (Supertrend), lalu secara otomatis menyediakan likuiditas satu sisi (Single-Sided Liquidity) menggunakan Meteora DLMM.
+Arcanist DLMM Bot adalah bot otomatis (Automated Trading & LP Bot) kelas atas untuk ekosistem Solana. Bot ini dirancang untuk mendeteksi token *trending*, menyaringnya melalui analisis fundamental & teknikal (Supertrend), menyeleksinya menggunakan **Hermes AI Agent**, dan secara dinamis menyediakan likuiditas satu sisi (*Single-Sided Liquidity*) menggunakan pool **Meteora DLMM**.
 
-## Fitur Utama
+## 🚀 Fitur Utama Terkini
 
-- **Scraper Pintar (`bot/scraper.cjs`)**: Mengambil token trending dari GMGN API, memfilter berdasarkan fundamental (Market Cap, Volume, Holders, dll), dan melakukan verifikasi tren *bullish* menggunakan indikator Supertrend.
-- **Auto DLMM Meteora (`bot/main.cjs` & `bot/solana-dex.cjs`)**: Menyediakan Single-Sided Liquidity secara otomatis untuk token hasil kurasi dari scraper.
-- **Take Profit / Exit via Jupiter (`bot/solana-dex.cjs`)**: Infrastruktur yang dipersiapkan untuk secara otomatis menukar (*swap*) kembali ke SOL setelah mencapai target profit.
+- **AI-Powered Screening (`bot/ai-agent.cjs`)**: Terintegrasi dengan model LLM (Bluesminds) untuk memberikan analisis tambahan pada kandidat token, memilih token terbaik dengan rasio aman.
+- **Advanced GMGN Scraper (`bot/scraper.cjs`)**: Mengambil data secara *real-time* dan memfilternya berdasarkan Metrik Fundamental (*Market Cap*, Volume, Umur Token, *Smart Degen Holders*) dan Teknikal (Supertrend *Bullish*).
+- **Dynamic Capital Allocation (`bot/main.cjs`)**: Manajemen risiko otomatis dengan menghitung alokasi modal dinamis berdasarkan sisa saldo dompet, dengan mempertimbangkan *Gas Reserve*, *Refundable Reserve*, dan *Maximum Allocation*.
+- **Comprehensive Exit Strategy (`bot/main.cjs`)**: Secara pintar akan mencairkan dan menutup posisi DLMM berdasarkan:
+  - Take Profit (TP) & Stop Loss (SL).
+  - Batas waktu maksimal posisi (*Timeout*).
+  - Sinyal Teknikal Gabungan (RSI *Overbought*, penembusan *Bollinger Bands*, dan *MACD Histogram*).
+- **Auto Dust Sweeper (`bot/solana-dex.cjs`)**: Menukarkan sisa *dust* token yang nilainya di atas limit kembali ke SOL melalui Jupiter API pasca penutupan likuiditas.
+- **Otomatisasi Cron Job**: Scraper dan laporan pemantauan berjalan sepenuhnya di latar belakang dengan interval dinamis (tidak perlu eksekusi manual berulang).
+- **Telegram Bot Control (`bot/telegram.cjs`)**: Terhubung dengan Telegram menggunakan `telegraf` untuk mengirim pembaruan secara *real-time*, memantau `/positions`, menghidupkan/mematikan bot (`/toggle_auto`), dan mengobrol langsung dengan AI Analis (`/chat`).
+- **Resilient API Handling (`bot/api-utils.cjs`)**: Mekanisme *Exponential Backoff* untuk menangani transaksi RPC atau API yang gagal karena *rate limit* atau gangguan jaringan.
 
-## Persyaratan
+## ⚙️ Persyaratan Sistem
 
-- Node.js versi 18 ke atas.
-- API Key dari GMGN (opsional, public key akan digunakan jika tidak disediakan namun rentan *rate limit*).
-- RPC Solana URL.
-- Private key wallet.
+- **Node.js** v18 atau lebih baru.
+- **API Key** dari GMGN (opsional, tetapi sangat direkomendasikan agar terhindar dari batas laju / *rate limit*).
+- **Telegram Bot Token** & Chat ID (dari @BotFather).
+- **Solana RPC URL** yang stabil.
+- **Private Key** Dompet Solana.
 
-## Instalasi
+## 🛠️ Instalasi
 
-1. Clone repositori ini atau masuk ke direktori proyek:
+1. Clone repositori ini dan masuk ke direktori proyek:
    ```bash
-   cd /root/arcanist
+   git clone https://github.com/Juanneilp/arcanist.git
+   cd arcanist
    ```
-2. Instal dependensi:
+2. Instal semua dependensi:
    ```bash
    npm install
    ```
 
-## Konfigurasi
+## 📝 Konfigurasi
 
 ### 1. Environment Variables (`.env`)
-Salin file `.env.example` ke `.env` dan isi variabel berikut:
+Salin file `.env.example` ke `.env` dan konfigurasikan kunci rahasia Anda:
 ```env
 WALLET_PRIVATE_KEY=your_base58_private_key_here
 RPC_URL=your_solana_rpc_url_here
 GMGN_API_KEY=your_gmgn_api_key_here
+TELEGRAM_BOT_TOKEN=your_telegram_token
+TELEGRAM_CHAT_ID=your_chat_id
+BLUESMINDS_API_KEY=your_bluesminds_api_key
 ```
 
-### 2. User Config (`user-config.json`)
-Sesuaikan filter *scraping* dan parameter likuiditas di dalam `user-config.json`:
-- **`apiSettings`**: Konfigurasi parameter endpoint API GMGN.
-- **`localFilters`**: Filter batasan token (contoh: *market cap* minimum, umur minimum).
-- **`technicalFilters`**: Pengaturan indikator teknikal seperti periode dan *multiplier* Supertrend.
-- **`meteoraConfig`**: Pengaturan untuk aksi bot di Meteora (jumlah SOL yang di-*provide*, tipe strategi, *bin range*).
+### 2. User Configuration (`user-config.json`)
+Pusat kendali bot Anda berada di `user-config.json`:
+- **`botMode`**: Atur ke `"dry_run"` untuk simulasi atau `"live"` untuk eksekusi nyata menggunakan uang sungguhan.
+- **`meteoraConfig`**: Pengaturan modal dinamis (`maxSolPerPosition`, `minSolToOpen`, `gasReserve`, `refundableReserve`) serta strategi Bin Meteora.
+- **`monitoringConfig`**: Interval perulangan cron, batas posisi maksimal, dan mode entri/penutupan otomatis.
+- **`exitConfig`**: Persentase TP/SL, durasi *hold* maksimal, dan parameter indikator (RSI, BB, MACD).
 
-## Cara Penggunaan
+## ▶️ Menjalankan Bot
 
-Penggunaan bot ini terbagi ke dalam 2 langkah utama:
+Proyek ini telah digabungkan menjadi satu kesatuan alur kerja (*unified workflow*). Scraper dan eksekutor utama dikontrol dalam satu proses berjalan.
 
-**Langkah 1: Scrape Kandidat Token**
-Jalankan perintah berikut untuk mengumpulkan kandidat token potensial yang lulus filter fundamental dan indikator tren. Daftar token yang lolos akan disimpan ke file `candidates.json`.
+Mulai Arcanist Bot dengan menjalankan:
 ```bash
-node scraper.cjs
+node bot/main.cjs
 ```
-
-**Langkah 2: Eksekusi DLMM Bot**
-Setelah file `candidates.json` dibuat, jalankan bot Meteora untuk melakukan aksi tambah likuiditas secara otomatis.
+Atau menggunakan PM2 agar berjalan di *background*:
 ```bash
-node bot.cjs
+pm2 start bot/main.cjs --name "arcanist"
 ```
-*(Catatan: Mode live execution secara default masih dalam mode komentar/SIMULASI di dalam `bot.cjs` untuk keselamatan selama proses development. Pastikan baris kode eksekusi `addLiquidity` di-uncomment ketika sudah siap produksi.)*
 
-## Disclaimer
-
-Gunakan bot ini dengan bijak dan seluruh risiko perdagangan dan likuiditas (seperti risiko *impermanent loss*) sepenuhnya ditanggung oleh pengguna.
+## ⚠️ Disclaimer
+Gunakan perangkat lunak ini dengan hati-hati. *Trading* kripto dan penyediaan likuiditas memiliki risiko yang sangat tinggi (terutama *Impermanent Loss* dan *Rug Pull* pada aset koin *meme*). Seluruh kerugian finansial sepenuhnya ditanggung oleh pengguna.

@@ -18,3 +18,8 @@ dist
 
 # Internal / testing (not for public release)
 testing/
+
+# Bot State & Generated Data
+candidates.json
+active_positions.json
+trade_history.json
