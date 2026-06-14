@@ -31,12 +31,14 @@
   "meteoraConfig": {
     "solPerPosition": 0.2,
     "minSolToOpen": 0.21,
-    "allowedQuoteTokens": ["SOL"],
+    "allowedQuoteTokens": [
+      "SOL"
+    ],
     "gasReserve": 0.1,
     "refundableReserve": 0.2,
     "minBinStep": 80,
     "maxBinStep": 125,
-    "minRange": -90,
+    "minRange": -85,
     "maxRange": 1,
     "strategyType": 0
   },
@@ -45,7 +47,7 @@
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
     "maxActivePositions": 1,
-    "entryMode": "manual",
+    "entryMode": "auto",
     "closeMode": "auto"
   },
   "exitConfig": {
@@ -53,6 +55,7 @@
     "tpPercentage": 0,
     "slPercentage": 0,
     "maxHoldHours": 24,
+    "minHoldMinutes": 15,
     "rsi": {
       "period": 2,
       "upperLimit": 90

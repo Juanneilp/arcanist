@@ -1,5 +1,6 @@
 const { PublicKey, Connection, Keypair, VersionedTransaction, TransactionMessage, Transaction } = require('@solana/web3.js');
 const DLMM = require('@meteora-ag/dlmm');
+const { Zap } = require('@meteora-ag/zap-sdk');
 const BN = require('bn.js');
 const fs = require('fs');
 const path = require('path');
@@ -89,10 +90,15 @@ async function swapSolToToken(connection, walletKeypair, tokenMint, solAmount, m
 
 async function getSolPriceUsd() {
     try {
-        const response = await fetchWithRetry("https://price.jup.ag/v6/price?ids=SOL");
+        const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+        const response = await fetchWithRetry(`https://api.jup.ag/price/v3?ids=${WSOL_MINT}`);
         if (response.ok) {
             const data = await response.json();
-            return data.data.SOL.price;
+            if (data[WSOL_MINT] && data[WSOL_MINT].usdPrice) {
+                return parseFloat(data[WSOL_MINT].usdPrice);
+            } else if (data.data && data.data[WSOL_MINT]) {
+                return parseFloat(data.data[WSOL_MINT].price || data.data[WSOL_MINT].usdPrice);
+            }
         }
     } catch (e) {
         console.error("Failed to fetch SOL price", e.message);
@@ -179,29 +185,36 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     const isSolX = dlmmPool.tokenX.publicKey.toBase58() === solMint;
     let minBin, maxBin, newBalanceX, newBalanceY;
     
+    // Parse prices using the raw price for accurate bin calculation
+    // Meteora snippet incorrectly used UI price (fromPricePerLamport) directly in getBinIdFromPrice
+    // which expects raw price (or requires toPricePerLamport conversion first).
+    const currentRawPrice = Number(activeBin.price);
+    
+    // Calculate price boundaries based on percentage (-90 = -90%, 1 = +1%)
+    const minPrice = currentRawPrice * (1 + (minRange / 100));
+    const maxPrice = currentRawPrice * (1 + (maxRange / 100));
+    
+    // Find absolute bin bounds
+    const rawMinBin = dlmmPool.getBinIdFromPrice(minPrice, true);
+    const rawMaxBin = dlmmPool.getBinIdFromPrice(maxPrice, false);
+    
     if (isSolX) {
         // SOL is Token X -> Buy Y (Meme)
-        // Cheap Meme = higher Y per X = higher binId. Expensive Meme = lower binId.
-        // User maxRange (+1%) means expensive Meme -> lower binId. 
-        // User minRange (-90%) means cheap Meme -> higher binId.
-        const rawMin = activeBin.binId - maxRange;
-        const rawMax = activeBin.binId - minRange;
-        
+        const sortedMin = Math.min(rawMinBin, rawMaxBin);
+        const sortedMax = Math.max(rawMinBin, rawMaxBin);
         // We provide Token X, so we can only provide in bins >= activeBin
-        minBin = Math.max(rawMin, activeBin.binId);
-        maxBin = Math.max(rawMax, activeBin.binId);
+        minBin = Math.max(sortedMin, activeBin.binId);
+        maxBin = Math.max(sortedMax, activeBin.binId);
         
         newBalanceX = new BN(solLamports);
         newBalanceY = new BN(0);
     } else {
         // SOL is Token Y -> Buy X (Meme)
-        // Cheap Meme = lower Y per X = lower binId. Expensive Meme = higher binId.
-        const rawMin = activeBin.binId + minRange;
-        const rawMax = activeBin.binId + maxRange;
-        
+        const sortedMin = Math.min(rawMinBin, rawMaxBin);
+        const sortedMax = Math.max(rawMinBin, rawMaxBin);
         // We provide Token Y, so we can only provide in bins <= activeBin
-        minBin = Math.min(rawMin, activeBin.binId);
-        maxBin = Math.min(rawMax, activeBin.binId);
+        minBin = Math.min(sortedMin, activeBin.binId);
+        maxBin = Math.min(sortedMax, activeBin.binId);
         
         newBalanceX = new BN(0);
         newBalanceY = new BN(solLamports);
@@ -209,39 +222,122 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     
     const newPositionKeypair = Keypair.generate();
     
-    // Solana inner instruction reallocation limit allows max ~69 bins in a single InitializePosition transaction.
-    if (maxBin - minBin > 69) {
-        console.warn(`[Warning] Range width (${maxBin - minBin} bins) exceeds single TX limit (69 bins). Capping range.`);
-        if (isSolX) {
-            maxBin = minBin + 69;
-        } else {
-            minBin = maxBin - 69;
-        }
-    }
+    const isWideRange = (maxBin - minBin > 69);
+    console.log(`Creating liquidity transaction(s)... Wide Range: ${isWideRange}`);
     
-    console.log(`Creating InitializePositionAndAddLiquidityByStrategy transaction...`);
     try {
+        console.log(`[QUOTE] Checking for non-refundable costs...`);
+        const quote = await dlmmPool.quoteCreatePosition({
+            strategy: {
+                maxBinId: maxBin,
+                minBinId: minBin,
+                strategyType: strategyOptions.type || 0 
+            }
+        });
+        
+        const binArrayCost = quote.binArrayCost || 0;
+        const positionCost = quote.positionCost || 0;
+        const positionReallocCost = quote.positionReallocCost || 0;
+        
+        console.log(`[QUOTE] Position cost (refundable): ${positionCost} SOL`);
+        console.log(`[QUOTE] Position realloc cost (refundable): ${positionReallocCost} SOL`);
+        console.log(`[QUOTE] Bin array cost (NON-refundable): ${binArrayCost} SOL`);
+        console.log(`[QUOTE] Bin array count: ${quote.binArraysCount}`);
+        
+        if (binArrayCost > 0) {
+            console.log(`[SKIP] Skipping deploy: Non-refundable binArray cost detected! Cost: ${binArrayCost} SOL`);
+            return { 
+                status: "skipped", 
+                reason: "non_refundable_cost",
+                cost: binArrayCost
+            };
+        }
+        console.log(`[QUOTE] Safe to deploy! No non-refundable cost.`);
+        
         if (mode === "live") {
-            const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
-                positionPubKey: newPositionKeypair.publicKey, 
-                user: walletKeypair.publicKey,
-                totalXAmount: newBalanceX,
-                totalYAmount: newBalanceY,
-                strategy: {
-                    maxBinId: maxBin,
-                    minBinId: minBin,
-                    strategyType: strategyOptions.type || 0 
-                },
-                slippage: 1000 // 10% in bps
-            });
-            
-            console.log(`[LIVE] Sending Add Liquidity transaction...`);
-            const txid = await rpcRetryWrapper(async () => {
-                const latestBlockHash = await connection.getLatestBlockhash();
-                createPositionTx.recentBlockhash = latestBlockHash.blockhash;
-                return await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
-            });
-            console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
+            if (isWideRange) {
+                console.log(`[LIVE] Sending Create Extended Empty Position transaction(s)...`);
+                const createTxs = await dlmmPool.createExtendedEmptyPosition(
+                    minBin,
+                    maxBin,
+                    newPositionKeypair.publicKey,
+                    walletKeypair.publicKey
+                );
+                
+                const createTxArray = Array.isArray(createTxs) ? createTxs : [createTxs];
+                for (let i = 0; i < createTxArray.length; i++) {
+                    const txid = await rpcRetryWrapper(async () => {
+                        const latestBlockHash = await connection.getLatestBlockhash();
+                        createTxArray[i].recentBlockhash = latestBlockHash.blockhash;
+                        const signers = i === 0 ? [walletKeypair, newPositionKeypair] : [walletKeypair];
+                        const sig = await connection.sendTransaction(createTxArray[i], signers);
+                        await connection.confirmTransaction({
+                            signature: sig,
+                            blockhash: latestBlockHash.blockhash,
+                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                        }, "confirmed");
+                        return sig;
+                    });
+                    console.log(`[LIVE] Create TX ${i+1}/${createTxArray.length} Confirmed. TXID: ${txid}`);
+                }
+                
+                console.log(`[LIVE] Sending Add Liquidity (Chunkable) transaction(s)...`);
+                const addTxs = await dlmmPool.addLiquidityByStrategyChunkable({
+                    positionPubKey: newPositionKeypair.publicKey,
+                    user: walletKeypair.publicKey,
+                    totalXAmount: newBalanceX,
+                    totalYAmount: newBalanceY,
+                    strategy: {
+                        maxBinId: maxBin,
+                        minBinId: minBin,
+                        strategyType: strategyOptions.type || 0 
+                    },
+                    slippage: 10 // 10%
+                });
+                
+                const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
+                for (let i = 0; i < addTxArray.length; i++) {
+                    const txid = await rpcRetryWrapper(async () => {
+                        const latestBlockHash = await connection.getLatestBlockhash();
+                        addTxArray[i].recentBlockhash = latestBlockHash.blockhash;
+                        const sig = await connection.sendTransaction(addTxArray[i], [walletKeypair]);
+                        await connection.confirmTransaction({
+                            signature: sig,
+                            blockhash: latestBlockHash.blockhash,
+                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                        }, "confirmed");
+                        return sig;
+                    });
+                    console.log(`[LIVE] Add Liquidity TX ${i+1}/${addTxArray.length} Confirmed. TXID: ${txid}`);
+                }
+            } else {
+                const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
+                    positionPubKey: newPositionKeypair.publicKey, 
+                    user: walletKeypair.publicKey,
+                    totalXAmount: newBalanceX,
+                    totalYAmount: newBalanceY,
+                    strategy: {
+                        maxBinId: maxBin,
+                        minBinId: minBin,
+                        strategyType: strategyOptions.type || 0 
+                    },
+                    slippage: 1000 // 10% in bps
+                });
+                
+                console.log(`[LIVE] Sending Add Liquidity transaction...`);
+                const txid = await rpcRetryWrapper(async () => {
+                    const latestBlockHash = await connection.getLatestBlockhash();
+                    createPositionTx.recentBlockhash = latestBlockHash.blockhash;
+                    const sig = await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
+                    await connection.confirmTransaction({
+                        signature: sig,
+                        blockhash: latestBlockHash.blockhash,
+                        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                    }, "confirmed");
+                    return sig;
+                });
+                console.log(`[LIVE] Transaction Confirmed. TXID: ${txid}`);
+            }
         } else {
             console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);
         }
@@ -268,34 +364,6 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
         if (mode === "live") {
             const txids = [];
             
-            // 1. Claim Fees
-            try {
-                console.log(`[LIVE] Attempting to claim fees for position ${positionPubKeyStr}...`);
-                const positionData = await dlmmPool.getPosition(positionPubKey);
-                const claimTxs = await dlmmPool.claimSwapFee({
-                    owner: walletKeypair.publicKey,
-                    position: positionData
-                });
-                
-                if (claimTxs && claimTxs.length > 0) {
-                    for (const tx of claimTxs) {
-                        const txid = await rpcRetryWrapper(async () => {
-                            const latestBlockHash = await connection.getLatestBlockhash();
-                            tx.recentBlockhash = latestBlockHash.blockhash;
-                            return await connection.sendTransaction(tx, [walletKeypair]);
-                        });
-                        txids.push(txid);
-                    }
-                    console.log(`[LIVE] Claim Fees TXs:`, txids);
-                }
-            } catch (e) {
-                console.log(`[LIVE] Claim fees skipped or failed: ${e.message}`);
-            }
-
-            // 2. Remove Liquidity & Close
-            let hasLiquidity = false;
-            let closeFromBinId = -887272;
-            let closeToBinId = 887272;
             try {
                 const positionData = await dlmmPool.getPosition(positionPubKey);
                 if (positionData && positionData.positionData) {
@@ -349,6 +417,57 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     });
                     txids.push(txid);
                 }
+            }
+            
+            // 3. Zap Out remaining Meme Tokens
+            try {
+                const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+                const tokenXStr = dlmmPool.tokenX.publicKey.toBase58();
+                const tokenYStr = dlmmPool.tokenY.publicKey.toBase58();
+                const inputMintStr = tokenXStr === WSOL_MINT ? tokenYStr : tokenXStr;
+                const outputMintStr = WSOL_MINT;
+
+                const inputMint = new PublicKey(inputMintStr);
+                const outputMint = new PublicKey(outputMintStr);
+
+                // Check remaining balance of inputMint
+                const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: inputMint });
+                let tokenBalanceLamports = new BN(0);
+                if (tokenAccounts.value.length > 0) {
+                    const amountStr = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.amount;
+                    tokenBalanceLamports = new BN(amountStr);
+                }
+
+                if (tokenBalanceLamports.gt(new BN(0))) {
+                    console.log(`[LIVE] Found ${tokenBalanceLamports.toString()} lamports of ${inputMintStr}. Zapping out to SOL...`);
+                    const zap = new Zap(connection);
+                    const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+                    
+                    const zapTx = await zap.zapOutThroughDlmm({
+                        user: walletKeypair.publicKey,
+                        lbPairAddress: poolAddress,
+                        inputMint: inputMint,
+                        outputMint: outputMint,
+                        inputTokenProgram: TOKEN_PROGRAM_ID,
+                        outputTokenProgram: TOKEN_PROGRAM_ID,
+                        amountIn: tokenBalanceLamports,
+                        minimumSwapAmountOut: new BN(0), // Accept any amount for now to ensure it closes, or we can set slippage
+                        maxSwapAmount: tokenBalanceLamports,
+                        percentageToZapOut: 100
+                    });
+
+                    const txid = await rpcRetryWrapper(async () => {
+                        const latestBlockHash = await connection.getLatestBlockhash();
+                        zapTx.recentBlockhash = latestBlockHash.blockhash;
+                        return await connection.sendTransaction(zapTx, [walletKeypair]);
+                    });
+                    console.log(`[LIVE] Zap Out TX:`, txid);
+                    txids.push(txid);
+                } else {
+                    console.log(`[LIVE] No remaining Meme tokens to Zap Out.`);
+                }
+            } catch (e) {
+                console.log(`[LIVE] Zap Out failed: ${e.message}. Fallback to Jupiter swap will trigger. `);
             }
             
             console.log(`[LIVE] Successfully processed exit for position:`, txids);

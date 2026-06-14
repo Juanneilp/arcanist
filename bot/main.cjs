@@ -45,6 +45,7 @@ async function evaluateExitCondition(position) {
     const tpPercentage = exitConf.tpPercentage !== undefined ? exitConf.tpPercentage : 50;
     const slPercentage = exitConf.slPercentage !== undefined ? exitConf.slPercentage : 20;
     const maxHoldHours = exitConf.maxHoldHours !== undefined ? exitConf.maxHoldHours : 24;
+    const minHoldMinutes = exitConf.minHoldMinutes !== undefined ? exitConf.minHoldMinutes : 15;
     const rsiConf = exitConf.rsi || { period: 2, upperLimit: 90 };
     const bbConf = exitConf.bb || { period: 20, multiplier: 2 };
     const macdConf = exitConf.macd || { fast: 12, slow: 26, signal: 9 };
@@ -111,6 +112,12 @@ async function evaluateExitCondition(position) {
             }
         }
         
+        // Cooldown check for indicator exits
+        const durationMinutes = (Date.now() - position.timestamp) / 60000;
+        if (durationMinutes < minHoldMinutes) {
+            return false;
+        }
+
         const rsiConditionMet = currentRsi > rsiConf.upperLimit;
         const priceAboveBbUpper = currentClose > currentBbUpper;
         const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
@@ -288,11 +295,13 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                     let entryPriceUsd = null;
                     try {
                         const { fetchWithRetry } = require('./api-utils.cjs');
-                        const res = await fetchWithRetry(`https://price.jup.ag/v6/price?ids=${token.address}`);
+                        const res = await fetchWithRetry(`https://api.jup.ag/price/v3?ids=${token.address}`);
                         if (res.ok) {
                             const data = await res.json();
-                            if (data.data && data.data[token.address]) {
-                                entryPriceUsd = data.data[token.address].price;
+                            if (data[token.address] && data[token.address].usdPrice) {
+                                entryPriceUsd = parseFloat(data[token.address].usdPrice);
+                            } else if (data.data && data.data[token.address]) {
+                                entryPriceUsd = parseFloat(data.data[token.address].price || data.data[token.address].usdPrice);
                             }
                         }
                     } catch (e) {
