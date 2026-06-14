@@ -5,8 +5,8 @@ const util = require('util');
 const execAsync = util.promisify(exec);
 const execFileAsync = util.promisify(execFile);
 const { Connection, Keypair, PublicKey } = require('@solana/web3.js');
-const bs58 = require('bs58');
-const { fetchMeteoraPools, addLiquidity, removeLiquidity, swapTokenToSol } = require('./solana-dex.cjs');
+const bs58 = require('bs58').default || require('bs58');
+const { fetchMeteoraPools, addLiquidity, removeLiquidity, swapTokenToSol, syncManualPositions, fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
 const { readState, addPosition, removePosition, logTrade } = require('./state.cjs');
 const { screenCandidates } = require('./ai-agent.cjs');
 const { sendMessage } = require('./telegram.cjs');
@@ -245,7 +245,7 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                         walletBalanceUi = (await connection.getBalance(walletKeypair.publicKey)) / 1e9;
                     }
 
-                    const maxSolPerPosition = botConfig.maxSolPerPosition || 0.15;
+                    const solPerPosition = botConfig.solPerPosition || 0.15;
                     const minSolToOpen = botConfig.minSolToOpen || 0.21;
                     const gasReserve = botConfig.gasReserve || 0.1;
                     const refundableReserve = botConfig.refundableReserve || 0.05;
@@ -256,14 +256,17 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                     }
 
                     const availableBalance = Math.max(0, walletBalanceUi - gasReserve - refundableReserve);
-                    solToDeploy = Math.min(availableBalance, maxSolPerPosition);
+                    solToDeploy = Math.min(availableBalance, solPerPosition);
 
                     if (solToDeploy <= 0) {
                         console.log(`[Skip] Insufficient balance for deployment after gas and refundable reserves.`);
                         continue;
                     }
 
-                    const pools = await fetchMeteoraPools(token.address, WSOL_MINT);
+                    const allowedQuoteTokens = botConfig.allowedQuoteTokens || ['SOL'];
+                    const pools = await fetchMeteoraPools(token.address, allowedQuoteTokens);
+            
+
                     const filteredPools = pools.filter(p => p.bin_step >= botConfig.minBinStep && p.bin_step <= botConfig.maxBinStep);
                     
                     if (filteredPools.length === 0) {
@@ -385,19 +388,127 @@ async function runBot() {
     let reportCronExpression = `*/${reportIntervalMinutes} * * * *`;
     if (reportIntervalMinutes < 1) reportCronExpression = `* * * * *`;
     
-    cron.schedule(reportCronExpression, () => {
-        const currentActivePositions = readState();
+    async function sendDashboardReport() {
+        let currentActivePositions = readState();
+        
+        let meteoraDetails = null;
+        let solBalance = 0;
+        try {
+            if (walletKeypair && walletKeypair.publicKey) {
+                solBalance = (await connection.getBalance(walletKeypair.publicKey)) / 1e9;
+                meteoraDetails = await fetchMeteoraPositionDetails(walletKeypair.publicKey.toBase58());
+            }
+        } catch(e) {
+            console.log(`[Report] Error fetching meteora/wallet details: ${e.message}`);
+        }
+
+        if (meteoraDetails !== null) {
+            // Filter out positions that are no longer open in Meteora API
+            const openPubKeys = Object.keys(meteoraDetails);
+            const actuallyOpen = currentActivePositions.filter(p => openPubKeys.includes(p.positionPubKey));
+            
+            // If some positions are closed on-chain but still in state, clean them up locally
+            const closedPositions = currentActivePositions.filter(p => !openPubKeys.includes(p.positionPubKey));
+            closedPositions.forEach(p => {
+                console.log(`[Report] Auto-removing position ${p.positionPubKey} from state as it's no longer open on Meteora.`);
+                removePosition(p.positionPubKey);
+            });
+            
+            currentActivePositions = actuallyOpen;
+        }
+
+        const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
+        let currentMaxPositions = 1;
+        try {
+            const currentConfig = JSON.parse(fs.readFileSync(currentConfigPath, 'utf-8'));
+            currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || 1;
+        } catch(e) {}
+
+        let msg = `📊 *Wallet & Open Positions*\n─────────────────\n`;
+        msg += `💳 *Wallet Balance*: ${solBalance.toFixed(4)} SOL\n`;
+        msg += `📈 *Active*: ${currentActivePositions.length}/${currentMaxPositions} Limit\n─────────────────\n\n`;
+
         if (currentActivePositions.length === 0) {
-            sendMessage(`ℹ️ *Status Report*\nCurrently 0 active positions.`);
+            msg += `No active positions.`;
+            sendMessage(msg);
         } else {
-            let msg = `📊 *Status Report (${currentActivePositions.length} Active Positions)*\n\n`;
-            currentActivePositions.forEach((pos, i) => {
-                msg += `${i+1}. *${pos.tokenSymbol}*\n   Pool: \`${pos.poolAddress}\`\n   Invested: ${pos.investedSol} SOL\n\n`;
+            const aiPositions = currentActivePositions.filter(p => p.openedBy === "auto");
+            const manualPositions = currentActivePositions.filter(p => p.openedBy === "manual");
+
+            let index = 1;
+            
+            if (aiPositions.length > 0) {
+                msg += `*AI Positions*\n`;
+                aiPositions.forEach(pos => {
+                    const details = meteoraDetails ? meteoraDetails[pos.positionPubKey] : null;
+                    const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
+                    const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
+                    
+                    msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
+                    if (details) {
+                        const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                        const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
+                        const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        
+                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
+                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        msg += `   ${rangeStatus}\n`;
+                    } else {
+                        msg += `   Invested: ${investedStr} SOL\n`;
+                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                    }
+                    msg += `\n`;
+                    index++;
+                });
+            }
+            
+            if (manualPositions.length > 0) {
+                msg += `*Manual Positions*\n`;
+                manualPositions.forEach(pos => {
+                    const details = meteoraDetails ? meteoraDetails[pos.positionPubKey] : null;
+                    const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
+                    const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
+                    
+                    msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
+                    if (details) {
+                        const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                        const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
+                        const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        
+                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
+                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        msg += `   ${rangeStatus}\n`;
+                    } else {
+                        msg += `   Invested: ${investedStr} SOL\n`;
+                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                    }
+                    msg += `\n`;
+                    index++;
+                });
+            }
+            
+            msg += `────────────────`;
+            sendMessage(msg);
+        }
+    }
+
+    cron.schedule(reportCronExpression, sendDashboardReport);
+    console.log(`Started Telegram Report Cron Job (Interval: ${reportIntervalMinutes}m)`);
+
+    // --- Sync Manual Positions Cron Job ---
+    cron.schedule('*/5 * * * *', async () => {
+        const synced = await syncManualPositions(connection, walletKeypair);
+        if (synced && synced.length > 0) {
+            let msg = `🔄 *Auto-Sync Manual Positions*\nFound and tracking ${synced.length} new LP position(s):\n\n`;
+            synced.forEach(pos => {
+                msg += `- Token: *${pos.tokenMint}*\n  Position: \`${pos.positionPubKey}\`\n\n`;
             });
             sendMessage(msg);
         }
     });
-    console.log(`Started Telegram Report Cron Job (Interval: ${reportIntervalMinutes}m)`);
+    console.log(`Started Sync Manual Positions Cron Job (Interval: 5m)`);
 
     // --- Scraper Cron Job ---
     const scraperIntervalMinutes = userConfig.monitoringConfig?.scraperIntervalMinutes || 5;
@@ -444,10 +555,32 @@ async function runBot() {
     console.log(`Started Scraper Cron Job (Interval: ${scraperIntervalMinutes}m)`);
 
     // --- Initial Entry Logic (Startup) ---
-    console.log(`[Startup] Running initial scrape and screening...`);
+    console.log(`[Startup] Running initial startup routine...`);
     try {
-        await runScraper();
-        await processCandidates(autoEntry, maxPositions, botConfig, connection, walletKeypair, botMode);
+        const synced = await syncManualPositions(connection, walletKeypair);
+        if (synced && synced.length > 0) {
+            let msg = `🔄 *Startup Sync*\nFound and tracking ${synced.length} manual LP position(s).\n`;
+            sendMessage(msg);
+        }
+        
+        // Show dashboard wallet and positions on startup
+        await sendDashboardReport();
+        
+        const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
+        let currentMaxPositions = maxPositions;
+        try {
+            const currentConfig = JSON.parse(fs.readFileSync(currentConfigPath, 'utf-8'));
+            currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || maxPositions;
+        } catch(e) {}
+        
+        const currentActivePositions = readState();
+        if (currentActivePositions.length >= currentMaxPositions) {
+            console.log(`[Startup] Active positions (${currentActivePositions.length}) reached max limit (${currentMaxPositions}). Skipping initial scraper.`);
+        } else {
+            console.log(`[Startup] Running initial scrape and screening...`);
+            await runScraper();
+            await processCandidates(autoEntry, currentMaxPositions, botConfig, connection, walletKeypair, botMode);
+        }
     } catch (e) {
         console.error('[Startup Error]:', e);
     }

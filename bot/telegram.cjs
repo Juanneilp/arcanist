@@ -29,21 +29,288 @@ if (token && token !== 'your_telegram_bot_token') {
     bot.start((ctx) => ctx.reply("Welcome to Arcanist Bot! Type /help to see available commands."));
 
     // Command: /positions
-    bot.command('positions', (ctx) => {
+    bot.command('positions', async (ctx) => {
         try {
-            const { readState } = require('./state.cjs');
-            const currentActivePositions = readState();
+            const { readState, removePosition } = require('./state.cjs');
+            const { fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
+            let currentActivePositions = readState();
+            
+            let meteoraDetails = null;
+            let walletAddress = null;
+            let solBalance = 0;
+            
+            if (process.env.WALLET_PRIVATE_KEY && process.env.WALLET_PRIVATE_KEY !== 'your_wallet_private_key_base58') {
+                const bs58 = require('bs58').default || require('bs58');
+                const { Keypair, Connection } = require('@solana/web3.js');
+                try {
+                    const decodedKey = bs58.decode(process.env.WALLET_PRIVATE_KEY);
+                    const walletKeypair = Keypair.fromSecretKey(decodedKey);
+                    walletAddress = walletKeypair.publicKey.toBase58();
+                    
+                    const connection = new Connection(process.env.RPC_URL || 'https://api.mainnet-beta.solana.com');
+                    solBalance = (await connection.getBalance(walletKeypair.publicKey)) / 1e9;
+                } catch(e) {}
+            }
+
+            if (walletAddress) {
+                try {
+                    meteoraDetails = await fetchMeteoraPositionDetails(walletAddress);
+                } catch(e) {}
+            }
+
+            // Removed aggressive state mutation here. 
+            // The bot loop should be the only one managing the lifecycle and auto-deleting closed positions.
+            // meteoraDetails will simply be used for augmenting the UI if the position data is found.
+
+            const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
+            let currentMaxPositions = 1;
+            try {
+                const currentConfig = JSON.parse(fs.readFileSync(currentConfigPath, 'utf-8'));
+                currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || 1;
+            } catch(e) {}
+
+            let msg = `📊 *Wallet & Open Positions*\n─────────────────\n`;
+            msg += `💳 *Wallet Balance*: ${solBalance.toFixed(4)} SOL\n`;
+            msg += `📈 *Active*: ${currentActivePositions.length}/${currentMaxPositions} Limit\n─────────────────\n\n`;
+
             if (currentActivePositions.length === 0) {
-                ctx.replyWithMarkdown(`ℹ️ *Status Report*\nCurrently 0 active positions.`);
+                msg += `No active positions.`;
+                ctx.replyWithMarkdown(msg);
             } else {
-                let msg = `📊 *Status Report (${currentActivePositions.length} Active Positions)*\n\n`;
-                currentActivePositions.forEach((pos, i) => {
-                    msg += `${i+1}. *${pos.tokenSymbol}*\n   Pool: \`${pos.poolAddress}\`\n   Invested: ${pos.investedSol} SOL\n\n`;
-                });
+                
+                const aiPositions = currentActivePositions.filter(p => p.openedBy === "auto");
+                const manualPositions = currentActivePositions.filter(p => p.openedBy === "manual");
+
+                let index = 1;
+                
+                if (aiPositions.length > 0) {
+                    msg += `*AI Positions*\n`;
+                    aiPositions.forEach(pos => {
+                        const details = meteoraDetails ? meteoraDetails[pos.positionPubKey] : null;
+                        const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
+                        const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
+                        
+                        msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
+                        if (details) {
+                            const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                            const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
+                            const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                            
+                            msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                            msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                            msg += `   ${rangeStatus}\n`;
+                        } else {
+                            msg += `   Invested: ${investedStr} SOL\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        }
+                        msg += `\n`;
+                        index++;
+                    });
+                }
+                
+                if (manualPositions.length > 0) {
+                    msg += `*Manual Positions*\n`;
+                    manualPositions.forEach(pos => {
+                        const details = meteoraDetails ? meteoraDetails[pos.positionPubKey] : null;
+                        const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
+                        const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
+                        
+                        msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
+                        if (details) {
+                            const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                            const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
+                            const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                            
+                            msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                            msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                            msg += `   ${rangeStatus}\n`;
+                        } else {
+                            msg += `   Invested: ${investedStr} SOL\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        }
+                        msg += `\n`;
+                        index++;
+                    });
+                }
+                
+                msg += `────────────────`;
                 ctx.replyWithMarkdown(msg);
             }
         } catch (e) {
             ctx.reply("❌ Failed to read positions: " + e.message);
+        }
+    });
+
+    // Helper to setup solana connections
+    function setupSolanaContext() {
+        if (!process.env.WALLET_PRIVATE_KEY || process.env.WALLET_PRIVATE_KEY === 'your_wallet_private_key_base58') return null;
+        const bs58 = require('bs58').default || require('bs58');
+        const { Keypair, Connection } = require('@solana/web3.js');
+        const decodedKey = bs58.decode(process.env.WALLET_PRIVATE_KEY);
+        const walletKeypair = Keypair.fromSecretKey(decodedKey);
+        const connection = new Connection(process.env.RPC_URL || 'https://api.mainnet-beta.solana.com', { commitment: 'confirmed' });
+        return { walletKeypair, connection };
+    }
+
+    // Command: /open <token_mint> [amount]
+    bot.command('open', async (ctx) => {
+        const text = ctx.message.text.trim();
+        const parts = text.split(/\s+/);
+        if (parts.length < 2) {
+            return ctx.reply("❌ Invalid format. Use: /open <token_mint> [sol_amount]");
+        }
+        const tokenMint = parts[1];
+        
+        const configPath = path.join(__dirname, '..', 'user-config.json');
+        let config = {};
+        if (fs.existsSync(configPath)) {
+            config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        }
+        
+        const defaultAmount = config.meteoraConfig?.solPerPosition || 0.1;
+        const investAmountSol = parts.length >= 3 ? parseFloat(parts[2]) : defaultAmount;
+        const minSolToOpen = config.meteoraConfig?.minSolToOpen || 0.1;
+        const botMode = config.botMode || 'live';
+        const minRange = config.meteoraConfig?.minRange ?? -90;
+        const maxRange = config.meteoraConfig?.maxRange ?? 1;
+        const strategyType = config.meteoraConfig?.strategyType ?? 0;
+        
+        ctx.reply(`⏳ Checking wallet balance and pools for ${tokenMint}...`);
+        try {
+            const solCtx = setupSolanaContext();
+            if (!solCtx) return ctx.reply("❌ Wallet not configured.");
+            
+            // Balance Check
+            const solBalanceLamports = await solCtx.connection.getBalance(solCtx.walletKeypair.publicKey);
+            const solBalance = solBalanceLamports / 1e9;
+            
+            if (solBalance < minSolToOpen) {
+                return ctx.reply(`❌ **Insufficient Balance**\nYour wallet balance is ${solBalance.toFixed(4)} SOL.\nMinimum required to open position (minSolToOpen) is ${minSolToOpen} SOL.`, { parse_mode: 'Markdown' });
+            }
+
+            const { fetchMeteoraPools, addLiquidity } = require('./solana-dex.cjs');
+            const { addPosition } = require('./state.cjs');
+            
+            const allowedQuoteTokens = config.meteoraConfig?.allowedQuoteTokens || ['SOL'];
+            const pools = await fetchMeteoraPools(tokenMint, allowedQuoteTokens);
+            if (!pools || pools.length === 0) {
+                return ctx.reply(`❌ No active DLMM pools found for ${tokenMint}.`);
+            }
+            
+            const bestPool = pools[0];
+            ctx.reply(`✅ Found Pool: \`${bestPool.poolAddress}\`\n⏳ Executing \`addLiquidity\` (${investAmountSol} SOL) in ${botMode.toUpperCase()} mode...`, { parse_mode: 'Markdown' });
+            
+            const solLamports = Math.floor(investAmountSol * 1e9);
+            const solMint = 'So11111111111111111111111111111111111111112';
+
+            const positionPubKeyStr = await addLiquidity(
+                solCtx.connection, 
+                solCtx.walletKeypair, 
+                bestPool.poolAddress, 
+                solMint, 
+                solLamports, 
+                minRange, 
+                maxRange, 
+                { type: strategyType }, 
+                botMode
+            );
+            
+            if (positionPubKeyStr) {
+                addPosition({
+                    tokenMint: tokenMint,
+                    tokenSymbol: "MANUAL_ENTRY",
+                    poolAddress: bestPool.poolAddress,
+                    positionPubKey: typeof positionPubKeyStr === 'string' ? positionPubKeyStr : positionPubKeyStr.status || "Unknown",
+                    investedSol: investAmountSol,
+                    openedBy: 'manual'
+                });
+                ctx.reply(`🎉 *Position Opened!*\nStatus/Position: \`${typeof positionPubKeyStr === 'string' ? positionPubKeyStr : positionPubKeyStr.status}\``, { parse_mode: 'Markdown' });
+            } else {
+                ctx.reply(`❌ Failed to open position (no pubkey returned).`);
+            }
+        } catch (e) {
+            ctx.reply(`❌ Error opening position: ${e.message}`);
+        }
+    });
+
+    // Command: /close <position_number>
+    bot.command('close', async (ctx) => {
+        const text = ctx.message.text.trim();
+        const parts = text.split(/\s+/);
+        if (parts.length < 2) {
+            return ctx.reply("❌ Invalid format. Use: /close <nomor_posisi>");
+        }
+        const index = parseInt(parts[1], 10) - 1;
+        
+        try {
+            const { readState, removePosition } = require('./state.cjs');
+            const { removeLiquidity } = require('./solana-dex.cjs');
+            
+            const currentActivePositions = readState();
+            const aiPositions = currentActivePositions.filter(p => p.openedBy === "auto");
+            const manualPositions = currentActivePositions.filter(p => p.openedBy === "manual");
+            const combined = [...aiPositions, ...manualPositions];
+            
+            if (index < 0 || index >= combined.length) {
+                return ctx.reply(`❌ Position number ${index+1} not found. Use /positions to view list.`);
+            }
+            
+            const pos = combined[index];
+            const solCtx = setupSolanaContext();
+            if (!solCtx) return ctx.reply("❌ Wallet not configured.");
+            
+            const configPath = path.join(__dirname, '..', 'user-config.json');
+            let botMode = 'live';
+            if (fs.existsSync(configPath)) {
+                botMode = JSON.parse(fs.readFileSync(configPath, 'utf-8')).botMode || 'live';
+            }
+            
+            ctx.reply(`⏳ Closing position ${pos.tokenSymbol} (\`${pos.positionPubKey}\`) in ${botMode.toUpperCase()} mode...`, { parse_mode: 'Markdown' });
+            const txid = await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
+            
+            removePosition(pos.positionPubKey);
+            const statusStr = typeof txid === 'string' ? txid : (txid && txid.status ? txid.status : 'success');
+            ctx.reply(`✅ *Position Closed!*\nStatus/TxID: \`${statusStr}\``, { parse_mode: 'Markdown' });
+        } catch (e) {
+            ctx.reply(`❌ Error closing position: ${e.message}`);
+        }
+    });
+
+    // Command: /close_all
+    bot.command('close_all', async (ctx) => {
+        try {
+            const { readState, removePosition } = require('./state.cjs');
+            const { removeLiquidity } = require('./solana-dex.cjs');
+            
+            const positions = readState();
+            if (positions.length === 0) return ctx.reply("❌ No active positions to close.");
+            
+            const solCtx = setupSolanaContext();
+            if (!solCtx) return ctx.reply("❌ Wallet not configured.");
+            
+            const configPath = path.join(__dirname, '..', 'user-config.json');
+            let botMode = 'live';
+            if (fs.existsSync(configPath)) {
+                botMode = JSON.parse(fs.readFileSync(configPath, 'utf-8')).botMode || 'live';
+            }
+            
+            ctx.reply(`⏳ Closing ${positions.length} positions in ${botMode.toUpperCase()} mode...`);
+            
+            for (let i = 0; i < positions.length; i++) {
+                const pos = positions[i];
+                ctx.reply(`⏳ Closing ${i+1}/${positions.length}: ${pos.tokenSymbol}...`);
+                try {
+                    await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
+                    removePosition(pos.positionPubKey);
+                } catch(err) {
+                    ctx.reply(`❌ Failed to close ${pos.tokenSymbol}: ${err.message}`);
+                }
+            }
+            ctx.reply(`✅ Finished /close_all operation.`);
+        } catch (e) {
+            ctx.reply(`❌ Error during close_all: ${e.message}`);
         }
     });
 
@@ -98,6 +365,9 @@ if (token && token !== 'your_telegram_bot_token') {
         bot.telegram.setMyCommands([
             { command: 'help', description: 'Show available commands' },
             { command: 'positions', description: 'List active positions' },
+            { command: 'open', description: 'Open position (/open <mint> [sol])' },
+            { command: 'close', description: 'Close position (/close <number>)' },
+            { command: 'close_all', description: 'Close all positions' },
             { command: 'toggle_auto', description: 'Toggle Auto Entry/Close Mode' },
             { command: 'chat', description: 'Chat with Hermes AI Analyst' }
         ]).catch(e => console.error("Failed to set commands:", e.message));

@@ -1,4 +1,4 @@
-const { PublicKey, Connection, Keypair, VersionedTransaction } = require('@solana/web3.js');
+const { PublicKey, Connection, Keypair, VersionedTransaction, TransactionMessage, Transaction } = require('@solana/web3.js');
 const DLMM = require('@meteora-ag/dlmm');
 const BN = require('bn.js');
 const fs = require('fs');
@@ -130,49 +130,40 @@ async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountU
 }
 
 // --- METEORA LOGIC ---
-async function fetchMeteoraPools(mintA, mintB) {
-    console.log(`Searching for Meteora DLMM pools for ${mintA} and ${mintB}...`);
+async function fetchMeteoraPools(query, allowedQuoteTokens = []) {
+    console.log(`Searching for Meteora DLMM pools for ${query}...`);
     try {
-        // 1. Reliable Data Source: Use DexScreener to find all Meteora pairs for this token
-        const dsRes = await fetchWithRetry(`https://api.dexscreener.com/latest/dex/tokens/${mintA}`);
-        const dsData = await dsRes.json();
-        
-        let poolAddresses = [];
-        if (dsData && dsData.pairs) {
-            const meteoraPairs = dsData.pairs.filter(p => 
-                p.dexId === 'meteora' && 
-                ((p.baseToken.address === mintA && p.quoteToken.address === mintB) || 
-                 (p.baseToken.address === mintB && p.quoteToken.address === mintA))
-            );
-            poolAddresses = meteoraPairs.map(p => p.pairAddress);
+        const url = `https://dlmm.datapi.meteora.ag/pools?query=${encodeURIComponent(query)}`;
+        const res = await fetchWithRetry(url);
+        if (!res.ok) {
+            console.error(`Meteora API Error: ${res.statusText}`);
+            return [];
         }
         
-        const matchingPools = [];
-        // 2. Fetch specific pool details from Meteora Datapi
-        for (const address of poolAddresses) {
-            try {
-                const pRes = await fetchWithRetry(`https://dlmm.datapi.meteora.ag/pools/${address}`);
-                if (pRes.ok) {
-                    const poolData = await pRes.json();
-                    if (poolData && poolData.address) {
-                        // Ensure compatibility with existing properties (liquidity is tvl, token_x etc)
-                        poolData.liquidity = poolData.tvl;
-                        poolData.mint_x = poolData.token_x?.address;
-                        poolData.mint_y = poolData.token_y?.address;
-                        if (poolData.pool_config) {
-                            poolData.bin_step = poolData.pool_config.bin_step;
-                        }
-                        matchingPools.push(poolData);
-                    }
-                }
-            } catch (e) {
-                console.error(`Failed to fetch specific pool ${address}`, e);
-            }
+        const data = await res.json();
+        const pools = (Array.isArray(data) ? data : data.data || []);
+        
+        let matchingPools = pools.map(p => ({
+            address: p.address || p.pool_address,
+            poolAddress: p.address || p.pool_address,
+            name: p.name,
+            bin_step: p.bin_step ?? p.dlmm_params?.bin_step ?? p.pool_config?.bin_step,
+            liquidity: p.liquidity ?? p.tvl,
+            mint_x: p.mint_x ?? p.token_x?.address,
+            mint_y: p.mint_y ?? p.token_y?.address,
+            symbol_x: p.mint_x_symbol ?? p.token_x?.symbol,
+            symbol_y: p.mint_y_symbol ?? p.token_y?.symbol,
+        }));
+        
+        if (allowedQuoteTokens && Array.isArray(allowedQuoteTokens) && allowedQuoteTokens.length > 0) {
+            matchingPools = matchingPools.filter(p => 
+                allowedQuoteTokens.includes(p.symbol_x) || allowedQuoteTokens.includes(p.symbol_y)
+            );
         }
         
         return matchingPools;
     } catch (e) {
-        console.error("Failed to fetch pools from Data Sources.", e);
+        console.error("Failed to fetch pools from Meteora Datapi.", e);
         return [];
     }
 }
@@ -218,6 +209,17 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     
     const newPositionKeypair = Keypair.generate();
     
+    // Solana inner instruction reallocation limit allows max ~69 bins in a single InitializePosition transaction.
+    // Also, the overall transaction size limit is 1232 bytes, which means we cannot bundle >69 bins into 1 transaction either.
+    if (maxBin - minBin > 69) {
+        console.warn(`[Warning] Range width (${maxBin - minBin} bins) exceeds single TX limit (69 bins). Capping range.`);
+        if (isSolX) {
+            maxBin = minBin + 69;
+        } else {
+            minBin = maxBin - 69;
+        }
+    }
+    
     console.log(`Creating InitializePositionAndAddLiquidityByStrategy transaction...`);
     try {
         if (mode === "live") {
@@ -230,13 +232,14 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     maxBinId: maxBin,
                     minBinId: minBin,
                     strategyType: strategyOptions.type || 0 
-                }
+                },
+                slippage: 1000 // 10% in bps
             });
             
             console.log(`[LIVE] Sending Add Liquidity transaction...`);
             const txid = await rpcRetryWrapper(async () => {
-                // If this fails due to blockhash, dlmmPool might internally update it on retry, 
-                // but connection.sendTransaction usually handles blockhash fetching itself.
+                const latestBlockHash = await connection.getLatestBlockhash();
+                createPositionTx.recentBlockhash = latestBlockHash.blockhash;
                 return await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
             });
             console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
@@ -262,21 +265,95 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
     console.log(`Initializing DLMM Pool instance for ${poolAddressStr}...`);
     const dlmmPool = await DLMM.create(connection, poolAddress);
     
-    console.log(`Creating removeLiquidity transaction for position ${positionPubKeyStr}...`);
     try {
         if (mode === "live") {
-            const removeTx = await dlmmPool.removeLiquidity({
-                position: positionPubKey,
-                user: walletKeypair.publicKey,
-                bps: new BN(10000),
-                shouldClaimAndClose: true
-            });
+            const txids = [];
             
-            console.log(`[LIVE] Sending Remove Liquidity transaction...`);
-            const txid = await rpcRetryWrapper(async () => {
-                return await connection.sendTransaction(removeTx, [walletKeypair]);
-            });
-            console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
+            // 1. Claim Fees
+            try {
+                console.log(`[LIVE] Attempting to claim fees for position ${positionPubKeyStr}...`);
+                const positionData = await dlmmPool.getPosition(positionPubKey);
+                const claimTxs = await dlmmPool.claimSwapFee({
+                    owner: walletKeypair.publicKey,
+                    position: positionData
+                });
+                
+                if (claimTxs && claimTxs.length > 0) {
+                    for (const tx of claimTxs) {
+                        const txid = await rpcRetryWrapper(async () => {
+                            const latestBlockHash = await connection.getLatestBlockhash();
+                            tx.recentBlockhash = latestBlockHash.blockhash;
+                            return await connection.sendTransaction(tx, [walletKeypair]);
+                        });
+                        txids.push(txid);
+                    }
+                    console.log(`[LIVE] Claim Fees TXs:`, txids);
+                }
+            } catch (e) {
+                console.log(`[LIVE] Claim fees skipped or failed: ${e.message}`);
+            }
+
+            // 2. Remove Liquidity & Close
+            let hasLiquidity = false;
+            let closeFromBinId = -887272;
+            let closeToBinId = 887272;
+            try {
+                const positionData = await dlmmPool.getPosition(positionPubKey);
+                if (positionData && positionData.positionData) {
+                    const pd = positionData.positionData;
+                    closeFromBinId = pd.lowerBinId ?? closeFromBinId;
+                    closeToBinId = pd.upperBinId ?? closeToBinId;
+                    const bins = Array.isArray(pd.positionBinData) ? pd.positionBinData : [];
+                    hasLiquidity = bins.some(bin => new BN(bin.positionLiquidity || "0").gt(new BN(0)));
+                }
+            } catch (e) {
+                console.log(`[LIVE] Could not check liquidity state: ${e.message}`);
+            }
+
+            if (hasLiquidity) {
+                console.log(`[LIVE] Position has liquidity. Creating removeLiquidity transaction...`);
+                const removeTx = await dlmmPool.removeLiquidity({
+                    position: positionPubKey,
+                    user: walletKeypair.publicKey,
+                    fromBinId: closeFromBinId,
+                    toBinId: closeToBinId,
+                    bps: new BN(10000),
+                    shouldClaimAndClose: true
+                });
+                
+                const txs = Array.isArray(removeTx) ? removeTx : [removeTx];
+                for (let i = 0; i < txs.length; i++) {
+                    const tx = txs[i];
+                    console.log(`[LIVE] Sending Remove TX ${i+1}/${txs.length}...`);
+                    const txid = await rpcRetryWrapper(async () => {
+                        const latestBlockHash = await connection.getLatestBlockhash();
+                        tx.recentBlockhash = latestBlockHash.blockhash;
+                        return await connection.sendTransaction(tx, [walletKeypair]);
+                    });
+                    txids.push(txid);
+                }
+            } else {
+                console.log(`[LIVE] No position liquidity detected. Creating closePosition transaction...`);
+                const closeTx = await dlmmPool.closePosition({
+                    owner: walletKeypair.publicKey,
+                    position: { publicKey: positionPubKey }
+                });
+                
+                const txs = Array.isArray(closeTx) ? closeTx : [closeTx];
+                for (let i = 0; i < txs.length; i++) {
+                    const tx = txs[i];
+                    console.log(`[LIVE] Sending Close TX ${i+1}/${txs.length}...`);
+                    const txid = await rpcRetryWrapper(async () => {
+                        const latestBlockHash = await connection.getLatestBlockhash();
+                        tx.recentBlockhash = latestBlockHash.blockhash;
+                        return await connection.sendTransaction(tx, [walletKeypair]);
+                    });
+                    txids.push(txid);
+                }
+            }
+            
+            console.log(`[LIVE] Successfully processed exit for position:`, txids);
+            return txids[txids.length - 1] || "success";
         } else {
             console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);
         }
@@ -287,11 +364,167 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
     }
 }
 
+async function fetchMeteoraPositionDetails(walletAddress) {
+    try {
+        const portfolioUrl = `https://dlmm.datapi.meteora.ag/portfolio/open?user=${walletAddress}`;
+        const res = await fetchWithRetry(portfolioUrl);
+        if (!res.ok) {
+            console.log(`[Meteora API] Failed to fetch portfolio: HTTP ${res.status}`);
+            return null;
+        }
+        const portfolio = await res.json();
+        const pools = portfolio.pools || [];
+        
+        const detailsMap = {};
+        
+        for (const pool of pools) {
+            try {
+                const pnlUrl = `https://dlmm.datapi.meteora.ag/positions/${pool.poolAddress}/pnl?user=${walletAddress}&status=open`;
+                const pnlRes = await fetchWithRetry(pnlUrl);
+                if (pnlRes.ok) {
+                    const pnlData = await pnlRes.json();
+                    const positions = pnlData.positions || [];
+                    for (const p of positions) {
+                        const isOOR = p.isOutOfRange || false;
+                        const unclaimedUsdX = parseFloat(p.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0);
+                        const unclaimedUsdY = parseFloat(p.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0);
+                        const balancesUsd = parseFloat(p.unrealizedPnl?.balances || 0);
+                        const pnlUsd = parseFloat(p.pnlUsd || 0);
+                        const pnlPctChange = parseFloat(p.pnlPctChange || p.pnlSolPctChange || 0);
+
+                        detailsMap[p.positionAddress] = {
+                            inRange: !isOOR,
+                            pnlPct: pnlPctChange,
+                            pnlUsd: pnlUsd,
+                            totalValueUsd: balancesUsd,
+                            unclaimedFeesUsd: unclaimedUsdX + unclaimedUsdY
+                        };
+                    }
+                }
+            } catch (e) {
+                console.log(`[Meteora API] Failed to fetch PnL for pool ${pool.poolAddress}`);
+            }
+        }
+        
+        return detailsMap;
+    } catch (e) {
+        console.error("[Meteora API] Error fetching position details:", e.message);
+        return null;
+    }
+}
+
 module.exports = {
     swapSolToToken,
     swapTokenToSol,
     getSolPriceUsd,
     fetchMeteoraPools,
     addLiquidity,
-    removeLiquidity
+    removeLiquidity,
+    fetchMeteoraPositionDetails
 };
+
+async function syncManualPositions(connection, walletKeypair) {
+    const { readState, saveState } = require('./state.cjs');
+    const { fetchWithRetry } = require('./api-utils.cjs');
+    
+    console.log(`[Sync] Scanning RPC for active DLMM positions owned by wallet...`);
+    const lbclmmProgramId = new PublicKey(DLMM.LBCLMM_PROGRAM_IDS['mainnet-beta']);
+    
+    try {
+        const accounts = await connection.getProgramAccounts(lbclmmProgramId, {
+            filters: [DLMM.positionOwnerFilter(walletKeypair.publicKey)],
+            commitment: 'confirmed'
+        });
+        
+        const state = readState();
+        let addedCount = 0;
+        let syncedPositions = [];
+        
+        for (const accountInfo of accounts) {
+            try {
+                let lbPair = new PublicKey(accountInfo.account.data.slice(8, 40));
+                const positionPubKeyStr = accountInfo.pubkey.toBase58();
+                
+                // Check if already in state
+                if (state.find(p => p.positionPubKey === positionPubKeyStr)) continue;
+                
+                const poolInstance = await DLMM.create(connection, lbPair);
+                const activeBin = await poolInstance.getActiveBin();
+                
+                const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+                let tokenMintStr = poolInstance.tokenX.publicKey.toBase58();
+                if (tokenMintStr === WSOL_MINT) {
+                    tokenMintStr = poolInstance.tokenY.publicKey.toBase58();
+                }
+                
+                // Fetch Symbol and USD price
+                let tokenSymbol = "MANUAL";
+                let entryPriceUsd = 0;
+                try {
+                    const res = await fetchWithRetry(`https://api.dexscreener.com/latest/dex/tokens/${tokenMintStr}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.pairs && data.pairs.length > 0) {
+                            const pair = data.pairs[0];
+                            tokenSymbol = pair.baseToken.address === tokenMintStr ? pair.baseToken.symbol : pair.quoteToken.symbol;
+                            entryPriceUsd = parseFloat(pair.priceUsd) || 0;
+                        }
+                    }
+                } catch(e) {}
+                
+                // Fetch invested SOL
+                let investedSol = 0;
+                try {
+                    const solPrice = await module.exports.getSolPriceUsd() || 150;
+                    const { userPositions } = await poolInstance.getPositionsByUserAndLbPair(walletKeypair.publicKey);
+                    const posData = userPositions.find(p => p.publicKey.toBase58() === positionPubKeyStr);
+                    
+                    if (posData) {
+                        const xAmount = Number(posData.positionData.totalXAmount) / Math.pow(10, poolInstance.tokenX.mint.decimals);
+                        const yAmount = Number(posData.positionData.totalYAmount) / Math.pow(10, poolInstance.tokenY.mint.decimals);
+                        
+                        let totalUsd = 0;
+                        if (poolInstance.tokenX.publicKey.toBase58() === WSOL_MINT) {
+                            totalUsd = (xAmount * solPrice) + (yAmount * entryPriceUsd);
+                        } else {
+                            totalUsd = (yAmount * solPrice) + (xAmount * entryPriceUsd);
+                        }
+                        investedSol = totalUsd / solPrice;
+                    }
+                } catch(e) {
+                    console.log(`[Sync] Warning calculating invested:`, e.message);
+                }
+                
+                const newPos = {
+                    positionPubKey: positionPubKeyStr,
+                    poolAddress: lbPair.toBase58(),
+                    tokenMint: tokenMintStr,
+                    tokenSymbol: tokenSymbol,
+                    openedBy: "manual",
+                    investedSol: investedSol,
+                    entryBinPrice: activeBin.price,
+                    entryPriceUsd: entryPriceUsd,
+                    timestamp: Date.now()
+                };
+                
+                state.push(newPos);
+                syncedPositions.push(newPos);
+                addedCount++;
+                console.log(`[Sync] Injected manual position: ${positionPubKeyStr} for token ${tokenSymbol}`);
+            } catch(e) {
+                // continue
+            }
+        }
+        
+        if (addedCount > 0) {
+            saveState(state);
+            console.log(`[Sync] Added ${addedCount} manual positions to active state.`);
+        }
+        return syncedPositions;
+    } catch(e) {
+        console.error(`[Sync Error]`, e.message);
+        return [];
+    }
+}
+
+module.exports.syncManualPositions = syncManualPositions;

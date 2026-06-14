@@ -1,5 +1,5 @@
 {
-  "botMode": "dry_run",
+  "botMode": "live",
   "apiSettings": {
     "chain": "sol",
     "platform": "Pump.fun",
@@ -29,8 +29,9 @@
     }
   },
   "meteoraConfig": {
-    "maxSolPerPosition": 0.15,
+    "solPerPosition": 0.2,
     "minSolToOpen": 0.21,
+    "allowedQuoteTokens": ["SOL"],
     "gasReserve": 0.1,
     "refundableReserve": 0.2,
     "minBinStep": 80,
