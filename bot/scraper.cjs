@@ -203,6 +203,26 @@ async function runScraper() {
         const outputPath = path.join(__dirname, '..', 'candidates.json');
         fs.writeFileSync(outputPath, JSON.stringify(finalTokens, null, 2));
         console.log(`\n[+] Saved ${finalTokens.length} candidates to ${outputPath}`);
+        
+        const { sendMessage } = require('./telegram.cjs');
+        if (finalTokens.length > 0) {
+            let logMsg = `[+] Scraper found ${finalTokens.length} candidates:\n`;
+            let tgMsg = `🔍 *GMGN Scraper Results: ${finalTokens.length} Tokens* 🔍\n━━━━━━━━━━━━━━━━━━\n`;
+            finalTokens.forEach(t => {
+                logMsg += `- ${t.symbol} (${t.address}) ST: ${t.latestSupertrend}\n`;
+                tgMsg += `💎 *${t.name}* (${t.symbol})\n`;
+                tgMsg += `🔗 \`${t.address}\`\n`;
+                tgMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
+                tgMsg += `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}\n`;
+                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k, Supertrend Hijau`;
+                tgMsg += `💡 *Reason:* _${reasonStr}_\n\n`;
+            });
+            console.log(logMsg);
+            sendMessage(tgMsg);
+        } else {
+            console.log(`[+] No candidates passed the filters.`);
+            sendMessage(`🔍 *Scraper Run Finished:*\nNo candidates passed the filters.`);
+        }
     } catch (e) {
         console.error("Execution failed.", e);
     }

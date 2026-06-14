@@ -41,7 +41,8 @@
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
     "maxActivePositions": 3,
-    "autoEntryEnabled": true
+    "entryMode": "auto",
+    "closeMode": "auto"
   },
   "exitConfig": {
     "minUsdDustValueToSwap": 0.5,
@@ -60,9 +61,9 @@
     }
   },
   "aiConfig": {
-    "provider": "openrouter",
-    "baseUrl": "https://openrouter.ai/api/v1",
-    "model": "nousresearch/hermes-3-llama-3.1-405b",
+    "provider": "bluesminds",
+    "baseUrl": "https://api.bluesminds.com/v1",
+    "model": "gpt-5.5",
     "systemPrompt": "You are Hermes Agent, an elite crypto trading analyst. Evaluate the provided candidates based on fundamental and technical metrics and select the best ones up to the requested maximum. Output only valid JSON format."
   }
 }

@@ -152,8 +152,11 @@ async function fetchMeteoraPools(mintA, mintB) {
                     if (poolData && poolData.address) {
                         // Ensure compatibility with existing properties (liquidity is tvl, token_x etc)
                         poolData.liquidity = poolData.tvl;
-                        poolData.mint_x = poolData.token_x.address;
-                        poolData.mint_y = poolData.token_y.address;
+                        poolData.mint_x = poolData.token_x?.address;
+                        poolData.mint_y = poolData.token_y?.address;
+                        if (poolData.pool_config) {
+                            poolData.bin_step = poolData.pool_config.bin_step;
+                        }
                         matchingPools.push(poolData);
                     }
                 }
@@ -212,24 +215,24 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     
     console.log(`Creating InitializePositionAndAddLiquidityByStrategy transaction...`);
     try {
-        const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
-            positionPubKey: newPositionKeypair.publicKey, 
-            user: walletKeypair.publicKey,
-            totalXAmount: newBalanceX,
-            totalYAmount: newBalanceY,
-            strategy: {
-                maxBinId: maxBin,
-                minBinId: minBin,
-                strategyType: strategyOptions.type || 0 
-            }
-        });
-        
         if (mode === "live") {
+            const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
+                positionPubKey: newPositionKeypair.publicKey, 
+                user: walletKeypair.publicKey,
+                totalXAmount: newBalanceX,
+                totalYAmount: newBalanceY,
+                strategy: {
+                    maxBinId: maxBin,
+                    minBinId: minBin,
+                    strategyType: strategyOptions.type || 0 
+                }
+            });
+            
             console.log(`[LIVE] Sending Add Liquidity transaction...`);
             const txid = await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair]);
             console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
         } else {
-            console.log(`[DRY RUN] Transaction built. Execution skipped.`);
+            console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);
         }
         
         return { 
@@ -251,19 +254,19 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
     
     console.log(`Creating removeLiquidity transaction for position ${positionPubKeyStr}...`);
     try {
-        const removeTx = await dlmmPool.removeLiquidity({
-            position: positionPubKey,
-            user: walletKeypair.publicKey,
-            bps: new BN(10000),
-            shouldClaimAndClose: true
-        });
-        
         if (mode === "live") {
+            const removeTx = await dlmmPool.removeLiquidity({
+                position: positionPubKey,
+                user: walletKeypair.publicKey,
+                bps: new BN(10000),
+                shouldClaimAndClose: true
+            });
+            
             console.log(`[LIVE] Sending Remove Liquidity transaction...`);
             const txid = await connection.sendTransaction(removeTx, [walletKeypair]);
             console.log(`[LIVE] Transaction Sent. TXID: ${txid}`);
         } else {
-            console.log(`[DRY RUN] Transaction built. Execution skipped.`);
+            console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);
         }
         return { status: mode === "live" ? "success" : "simulate_success" };
     } catch (e) {

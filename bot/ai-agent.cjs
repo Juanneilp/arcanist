@@ -73,7 +73,7 @@ async function screenCandidates(candidates, maxLimit) {
     const promptText = `
 I have ${candidates.length} token candidates, but I can only enter ${maxLimit} positions. 
 Please analyze the following candidates and select the best ${maxLimit}.
-Return ONLY a valid JSON array containing the selected token objects, matching exactly the structure provided. Do not include markdown formatting like \`\`\`json.
+Return ONLY a valid JSON array containing the selected token objects, matching exactly the structure provided, but ADD a new string field called "ai_reason" to each selected token object explaining exactly why it was chosen (in Indonesian, max 2 sentences). Do not include markdown formatting like \`\`\`json.
 
 Candidates:
 ${JSON.stringify(candidates, null, 2)}

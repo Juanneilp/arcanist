@@ -107,9 +107,14 @@ async function monitoringLoop(connection, walletKeypair) {
     }
     
     const botMode = userConfig.botMode || "dry_run";
+    const closeMode = userConfig.monitoringConfig?.closeMode || "auto";
     
     const activePositions = readState();
     if (activePositions.length === 0) return;
+    
+    if (closeMode === "manual") {
+        return;
+    }
     
     console.log(`[Monitor] Checking ${activePositions.length} active positions...`);
     
@@ -154,6 +159,85 @@ async function monitoringLoop(connection, walletKeypair) {
     }
 }
 
+async function processCandidates(autoEntry, maxPositions, botConfig, connection, walletKeypair, botMode) {
+    if (!autoEntry) {
+        console.log("Auto Entry is disabled. Skipping candidate processing.");
+        return;
+    }
+
+    const candidatesPath = path.join(__dirname, '..', 'candidates.json');
+    if (fs.existsSync(candidatesPath)) {
+        let candidates = JSON.parse(fs.readFileSync(candidatesPath, 'utf-8'));
+        console.log(`Loaded ${candidates.length} candidate(s) from JSON.`);
+        
+        const activePositions = readState();
+        const availableSlots = maxPositions - activePositions.length;
+        
+        if (availableSlots > 0 && candidates.length > 0) {
+            sendMessage(`🔍 Found ${candidates.length} candidates. Requesting Hermes AI screening...`);
+            // AI Screening
+            candidates = await screenCandidates(candidates, availableSlots);
+            
+            let aiMsg = `🤖 *Hermes AI Selection (Top ${candidates.length})* 🤖\n━━━━━━━━━━━━━━━━━━\n`;
+            candidates.forEach((t, index) => {
+                const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎';
+                aiMsg += `${rankEmoji} *${t.name}* (${t.symbol})\n`;
+                aiMsg += `🔗 \`${t.address}\`\n`;
+                aiMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
+                aiMsg += `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count}\n`;
+                if (t.ai_reason) aiMsg += `💡 *Reason:* _${t.ai_reason}_\n`;
+                aiMsg += `━━━━━━━━━━━━━━━━━━\n`;
+            });
+            sendMessage(aiMsg);
+            
+            for (const token of candidates) {
+                console.log(`\n==================================================`);
+                console.log(`Processing Token: ${token.symbol} (${token.address})`);
+                
+                try {
+                    const pools = await fetchMeteoraPools(token.address, WSOL_MINT);
+                    const filteredPools = pools.filter(p => p.bin_step >= botConfig.minBinStep && p.bin_step <= botConfig.maxBinStep);
+                    
+                    if (filteredPools.length === 0) {
+                        console.warn(`No matching Meteora pool found for ${token.symbol}/SOL with bin steps between ${botConfig.minBinStep} and ${botConfig.maxBinStep}.`);
+                        continue;
+                    }
+                    
+                    const targetPool = filteredPools.sort((a, b) => b.liquidity - a.liquidity)[0];
+                    const solLamportsToLP = Math.floor(botConfig.solAmountToLP * 1e9);
+                    
+                    console.log(`[${botMode.toUpperCase()}] Adding Single-Sided SOL Liquidity to ${targetPool.address} (Bin Step: ${targetPool.bin_step})...`);
+                    const result = await addLiquidity(connection, walletKeypair, targetPool.address, WSOL_MINT, solLamportsToLP, botConfig.minRange, botConfig.maxRange, { type: botConfig.strategyType }, botMode);
+                    
+                    if (botMode === "dry_run") {
+                        sendMessage(`ℹ️ *DRY RUN: Entry Skipped*\nToken: ${token.symbol}\nPool: \`${targetPool.address}\``);
+                        continue;
+                    }
+                    
+                    const newPos = {
+                        positionPubKey: result.positionPubKey,
+                        poolAddress: targetPool.address,
+                        tokenMint: token.address,
+                        tokenSymbol: token.symbol,
+                        openedBy: "auto",
+                        investedSol: botConfig.solAmountToLP
+                    };
+                    
+                    addPosition(newPos);
+                    logTrade('ENTRY', newPos);
+                    
+                    sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\``);
+                    
+                } catch (e) {
+                    console.error(`Error processing ${token.symbol}:`, e.message);
+                }
+            }
+        } else {
+            console.log("No available slots for new positions or no candidates.");
+        }
+    }
+}
+
 async function runBot() {
     const configPath = path.join(__dirname, '..', 'user-config.json');
     if (!fs.existsSync(configPath)) {
@@ -166,24 +250,45 @@ async function runBot() {
     console.log(`Starting Arcanist DLMM Bot in ${botMode.toUpperCase()} mode...`);
     sendMessage(`🚀 *Arcanist DLMM Bot Started*\nMode: *${botMode.toUpperCase()}*`);
     
-    if (!process.env.WALLET_PRIVATE_KEY || !process.env.RPC_URL) {
-        console.error("Missing WALLET_PRIVATE_KEY or RPC_URL in .env");
+    if (!process.env.RPC_URL) {
+        console.error("Missing RPC_URL in .env");
         process.exit(1);
     }
 
     const connection = new Connection(process.env.RPC_URL, 'confirmed');
     let walletKeypair;
-    try {
-        const decodedKey = bs58.decode(process.env.WALLET_PRIVATE_KEY);
-        walletKeypair = Keypair.fromSecretKey(decodedKey);
-        console.log(`Wallet loaded: ${walletKeypair.publicKey.toString()}`);
-    } catch (e) {
-        console.error("Failed to load wallet. Check WALLET_PRIVATE_KEY format.");
-        process.exit(1);
+
+    if (botMode === 'dry_run') {
+        try {
+            if (process.env.WALLET_PRIVATE_KEY && process.env.WALLET_PRIVATE_KEY !== 'your_wallet_private_key_base58') {
+                const decodedKey = bs58.decode(process.env.WALLET_PRIVATE_KEY);
+                walletKeypair = Keypair.fromSecretKey(decodedKey);
+            } else {
+                walletKeypair = Keypair.generate();
+                console.warn(`[DRY RUN] WALLET_PRIVATE_KEY is missing/default. Using dummy wallet: ${walletKeypair.publicKey.toString()}`);
+            }
+        } catch (e) {
+            walletKeypair = Keypair.generate();
+            console.warn(`[DRY RUN] Invalid WALLET_PRIVATE_KEY format. Using dummy wallet: ${walletKeypair.publicKey.toString()}`);
+        }
+    } else {
+        if (!process.env.WALLET_PRIVATE_KEY || process.env.WALLET_PRIVATE_KEY === 'your_wallet_private_key_base58') {
+            console.error("Missing WALLET_PRIVATE_KEY in .env");
+            process.exit(1);
+        }
+        try {
+            const decodedKey = bs58.decode(process.env.WALLET_PRIVATE_KEY);
+            walletKeypair = Keypair.fromSecretKey(decodedKey);
+            console.log(`Wallet loaded: ${walletKeypair.publicKey.toString()}`);
+        } catch (e) {
+            console.error("Failed to load wallet. Check WALLET_PRIVATE_KEY format.");
+            process.exit(1);
+        }
     }
 
     const botConfig = userConfig.meteoraConfig || { solAmountToLP: 0.01, minBinStep: 80, maxBinStep: 125, minRange: 86, maxRange: 94, strategyType: 0 };
-    const autoEntry = userConfig.monitoringConfig?.autoEntryEnabled ?? true;
+    const entryMode = userConfig.monitoringConfig?.entryMode || "auto";
+    const autoEntry = entryMode === "auto";
     const maxPositions = userConfig.monitoringConfig?.maxActivePositions || 2;
 
     // Start Monitoring Loop (For Exit Conditions)
@@ -243,6 +348,9 @@ async function runBot() {
             
             console.log(`[Scraper] Starting scheduled scrape (Cron: ${cronExpression})...`);
             await runScraper();
+            
+            // Process the newly scraped candidates immediately
+            await processCandidates(autoEntry, currentMaxPositions, botConfig, connection, walletKeypair, botMode);
         } catch (e) {
             console.error('[Scraper] Error in cron job:', e);
         } finally {
@@ -251,66 +359,8 @@ async function runBot() {
     });
     console.log(`Started Scraper Cron Job (Interval: ${scraperIntervalMinutes}m)`);
 
-    // --- Entry Logic ---
-    if (autoEntry) {
-        const candidatesPath = path.join(__dirname, '..', 'candidates.json');
-        if (fs.existsSync(candidatesPath)) {
-            let candidates = JSON.parse(fs.readFileSync(candidatesPath, 'utf-8'));
-            console.log(`Loaded ${candidates.length} candidate(s) from JSON.`);
-            
-            const activePositions = readState();
-            const availableSlots = maxPositions - activePositions.length;
-            
-            if (availableSlots > 0 && candidates.length > 0) {
-                sendMessage(`🔍 Found ${candidates.length} candidates. Requesting Hermes AI screening...`);
-                // AI Screening
-                candidates = await screenCandidates(candidates, availableSlots);
-                sendMessage(`🤖 AI Selected ${candidates.length} candidates for entry.`);
-                
-                for (const token of candidates) {
-                    console.log(`\n==================================================`);
-                    console.log(`Processing Token: ${token.symbol} (${token.address})`);
-                    
-                    try {
-                        const pools = await fetchMeteoraPools(token.address, WSOL_MINT);
-                        const filteredPools = pools.filter(p => p.bin_step >= botConfig.minBinStep && p.bin_step <= botConfig.maxBinStep);
-                        
-                        if (filteredPools.length === 0) {
-                            console.warn(`No matching Meteora pool found for ${token.symbol}/SOL with bin steps between ${botConfig.minBinStep} and ${botConfig.maxBinStep}.`);
-                            continue;
-                        }
-                        
-                        const targetPool = filteredPools.sort((a, b) => b.liquidity - a.liquidity)[0];
-                        const solLamportsToLP = Math.floor(botConfig.solAmountToLP * 1e9);
-                        
-                        console.log(`[${botMode.toUpperCase()}] Adding Single-Sided SOL Liquidity to ${targetPool.address} (Bin Step: ${targetPool.bin_step})...`);
-                        const result = await addLiquidity(connection, walletKeypair, targetPool.address, WSOL_MINT, solLamportsToLP, botConfig.minRange, botConfig.maxRange, { type: botConfig.strategyType }, botMode);
-                        
-                        const newPos = {
-                            positionPubKey: result.positionPubKey,
-                            poolAddress: targetPool.address,
-                            tokenMint: token.address,
-                            tokenSymbol: token.symbol,
-                            openedBy: "auto",
-                            investedSol: botConfig.solAmountToLP
-                        };
-                        
-                        addPosition(newPos);
-                        logTrade('ENTRY', newPos);
-                        
-                        sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\``);
-                        
-                    } catch (e) {
-                        console.error(`Error processing ${token.symbol}:`, e.message);
-                    }
-                }
-            } else {
-                console.log("No available slots for new positions or no candidates.");
-            }
-        }
-    } else {
-        console.log("Auto Entry is disabled. Running monitor only.");
-    }
+    // --- Initial Entry Logic (Startup) ---
+    await processCandidates(autoEntry, maxPositions, botConfig, connection, walletKeypair, botMode);
 }
 
 runBot();
