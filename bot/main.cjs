@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const util = require('util');
 const execAsync = util.promisify(exec);
+const execFileAsync = util.promisify(execFile);
 const { Connection, Keypair, PublicKey } = require('@solana/web3.js');
 const bs58 = require('bs58');
 const { fetchMeteoraPools, addLiquidity, removeLiquidity, swapTokenToSol } = require('./solana-dex.cjs');
@@ -52,10 +53,19 @@ async function evaluateExitCondition(position) {
     const chain = userConfig.apiSettings?.chain || 'sol';
     // Only need ~100 candles for MACD(26) to stabilize. 100 * 15m = 25 hours. We fetch last 48 hours to be safe.
     const fromTimestamp = Math.floor(Date.now() / 1000) - (48 * 60 * 60);
-    const cmd = `GMGN_API_KEY=${apiKey} npx gmgn-cli market kline --chain ${chain} --address ${position.tokenMint} --resolution 15m --from ${fromTimestamp} --raw`;
     
     try {
-        const { stdout } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 10 });
+        const { stdout } = await execFileAsync('npx', [
+            'gmgn-cli', 'market', 'kline', 
+            '--chain', chain, 
+            '--address', position.tokenMint, 
+            '--resolution', '15m', 
+            '--from', fromTimestamp.toString(), 
+            '--raw'
+        ], {
+            env: { ...process.env, GMGN_API_KEY: apiKey },
+            maxBuffer: 1024 * 1024 * 10
+        });
         const response = JSON.parse(stdout);
         
         if (!response.list || response.list.length < Math.max(rsiConf.period, bbConf.period, macdConf.slow) + 10) {

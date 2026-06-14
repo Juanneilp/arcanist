@@ -1,10 +1,11 @@
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const util = require('util');
 const fs = require('fs');
 const path = require('path');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const execAsync = util.promisify(exec);
+const execFileAsync = util.promisify(execFile);
 
 // --- SUPERTREND LOGIC ---
 function calculateATR(data, period) {
@@ -106,20 +107,21 @@ const localFilters = config.localFilters;
 const techFilters = config.technicalFilters || {};
 
 console.log(`Starting GMGN Scraper...`);
-let apiFiltersStr = '';
-if (apiSettings.apiFilters && Array.isArray(apiSettings.apiFilters)) {
-    apiSettings.apiFilters.forEach(filter => {
-        apiFiltersStr += ` --filter ${filter}`;
-    });
-}
 
 const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
-const fetchTrendingCommand = `GMGN_API_KEY=${apiKey} npx gmgn-cli market trending --chain ${apiSettings.chain} --interval ${apiSettings.interval} --platform ${apiSettings.platform} --limit ${apiSettings.limit}${apiFiltersStr} --raw`;
 
 async function fetchKlineData(address, timeframe) {
-    const cmd = `GMGN_API_KEY=${apiKey} npx gmgn-cli market kline --chain ${apiSettings.chain} --address ${address} --resolution ${timeframe} --raw`;
     try {
-        const { stdout } = await execAsync(cmd, { maxBuffer: 1024 * 1024 * 10 });
+        const { stdout } = await execFileAsync('npx', [
+            'gmgn-cli', 'market', 'kline',
+            '--chain', apiSettings.chain,
+            '--address', address,
+            '--resolution', timeframe,
+            '--raw'
+        ], {
+            env: { ...process.env, GMGN_API_KEY: apiKey },
+            maxBuffer: 1024 * 1024 * 10
+        });
         const response = JSON.parse(stdout);
         if (response.list) return response.list;
         return null;
@@ -131,7 +133,25 @@ async function fetchKlineData(address, timeframe) {
 async function runScraper() {
     console.log(`Executing API Request for Trending Tokens...`);
     try {
-        const { stdout } = await execAsync(fetchTrendingCommand, { maxBuffer: 1024 * 1024 * 10 });
+        const args = [
+            'gmgn-cli', 'market', 'trending', 
+            '--chain', apiSettings.chain, 
+            '--interval', apiSettings.interval, 
+            '--platform', apiSettings.platform, 
+            '--limit', apiSettings.limit.toString()
+        ];
+        
+        if (apiSettings.apiFilters && Array.isArray(apiSettings.apiFilters)) {
+            apiSettings.apiFilters.forEach(filter => {
+                args.push('--filter', filter);
+            });
+        }
+        args.push('--raw');
+
+        const { stdout } = await execFileAsync('npx', args, {
+            env: { ...process.env, GMGN_API_KEY: apiKey },
+            maxBuffer: 1024 * 1024 * 10
+        });
         const response = JSON.parse(stdout);
         if (response.code !== 0) return console.error(`API Error: ${response.msg}`);
 

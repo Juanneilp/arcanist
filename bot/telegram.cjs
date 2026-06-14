@@ -10,6 +10,14 @@ let bot;
 if (token && token !== 'your_telegram_bot_token') {
     bot = new Telegraf(token);
     
+    bot.use((ctx, next) => {
+        if (ctx.chat && ctx.chat.id.toString() === chatId) {
+            return next();
+        } else {
+            console.warn(`[Security] Unauthorized access attempt from chat ID: ${ctx.chat?.id}`);
+        }
+    });
+
     // Command: /start or /help
     bot.help((ctx) => {
         const helpMsg = `🤖 Arcanist Bot Commands 🤖\n\n` +
