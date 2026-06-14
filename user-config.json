@@ -43,7 +43,7 @@
     "checkIntervalSeconds": 30,
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
-    "maxActivePositions": 3,
+    "maxActivePositions": 1,
     "entryMode": "manual",
     "closeMode": "auto"
   },

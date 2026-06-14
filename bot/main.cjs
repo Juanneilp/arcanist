@@ -196,8 +196,7 @@ async function monitoringLoop(connection, walletKeypair) {
 
 async function processCandidates(autoEntry, maxPositions, botConfig, connection, walletKeypair, botMode) {
     if (!autoEntry) {
-        console.log("Auto Entry is disabled. Skipping candidate processing.");
-        return;
+        console.log("Auto Entry is disabled. Will run AI screening but skip Meteora deployment.");
     }
 
     const candidatesPath = path.join(__dirname, '..', 'candidates.json');
@@ -206,7 +205,8 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
         console.log(`Loaded ${candidates.length} candidate(s) from JSON.`);
         
         const activePositions = readState();
-        const availableSlots = maxPositions - activePositions.length;
+        // If autoEntry is disabled, we still want to show the top 3 (or maxPositions) candidates.
+        const availableSlots = autoEntry ? (maxPositions - activePositions.length) : maxPositions;
         
         if (availableSlots > 0 && candidates.length > 0) {
             sendMessage(`🔍 Found ${candidates.length} candidates. Requesting Hermes AI screening...`);
@@ -216,14 +216,21 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
             let aiMsg = `🤖 *Hermes AI Selection (Top ${candidates.length})* 🤖\n━━━━━━━━━━━━━━━━━━\n`;
             candidates.forEach((t, index) => {
                 const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎';
-                aiMsg += `${rankEmoji} *${t.name}* (${t.symbol})\n`;
+                const cleanName = t.name ? t.name.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                const cleanReason = t.ai_reason ? t.ai_reason.replace(/[_*`\[\]]/g, '') : '';
+                aiMsg += `${rankEmoji} *${cleanName}* (${t.symbol})\n`;
                 aiMsg += `🔗 \`${t.address}\`\n`;
                 aiMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
                 aiMsg += `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count}\n`;
-                if (t.ai_reason) aiMsg += `💡 *Reason:* _${t.ai_reason}_\n`;
+                if (cleanReason) aiMsg += `💡 *Reason:* _${cleanReason}_\n`;
                 aiMsg += `━━━━━━━━━━━━━━━━━━\n`;
             });
             sendMessage(aiMsg);
+            
+            if (!autoEntry) {
+                console.log("Auto Entry is disabled. Skipping Meteora deployment loop.");
+                return;
+            }
             
             for (const token of candidates) {
                 console.log(`\n==================================================`);
@@ -437,7 +444,13 @@ async function runBot() {
     console.log(`Started Scraper Cron Job (Interval: ${scraperIntervalMinutes}m)`);
 
     // --- Initial Entry Logic (Startup) ---
-    await processCandidates(autoEntry, maxPositions, botConfig, connection, walletKeypair, botMode);
+    console.log(`[Startup] Running initial scrape and screening...`);
+    try {
+        await runScraper();
+        await processCandidates(autoEntry, maxPositions, botConfig, connection, walletKeypair, botMode);
+    } catch (e) {
+        console.error('[Startup Error]:', e);
+    }
 }
 
 runBot();
