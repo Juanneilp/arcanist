@@ -20,7 +20,7 @@ Mengimplementasikan strategi keluar yang kuat dan otomatis untuk menutup posisi 
 1. **Logika Take Profit (TP)**: Tutup posisi jika harga token naik sebesar `X%` atau nilai USD posisi melampaui ambang batas tertentu.
 2. **Logika Stop Loss (SL)**: Tutup posisi jika harga token turun sebesar `Y%` dari harga masuk.
 3. **Keluar Berdasarkan Waktu (Opsional tapi Direkomendasikan)**: Tutup posisi jika sudah terbuka selama lebih dari `Z` jam untuk membebaskan modal.
-4. **Keluar Berdasarkan Analisis Teknikal**: Integrasikan dengan logika Supertrend yang ada di `bot/scraper.cjs`. Jika indikator Supertrend untuk token yang dipegang berubah menjadi **Merah/Bearish**, segera picu penutupan posisi.
+4. ~~**Keluar Berdasarkan Analisis Teknikal**: Integrasikan dengan logika Supertrend yang ada di `bot/scraper.cjs`. Jika indikator Supertrend untuk token yang dipegang berubah menjadi **Merah/Bearish**, segera picu penutupan posisi.~~ *(Dibatalkan)*
 5. **Konfigurasi**: Tambahkan parameter TP, SL, dan batasan waktu ke `user-config.json` di bawah `exitConfig`.
 
 ### Referensi File
