@@ -345,7 +345,9 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
         return { 
             status: mode === "live" ? "success" : "simulate_success", 
             positionPubKey: newPositionKeypair.publicKey.toBase58(),
-            activeBinPrice: activeBin.price
+            activeBinPrice: activeBin.price,
+            minBinId: minBin,
+            maxBinId: maxBin
         };
     } catch (e) {
         console.error("Error adding liquidity:", e);
@@ -364,6 +366,11 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
         if (mode === "live") {
             const txids = [];
             
+            let hasLiquidity = false;
+            let closeFromBinId = 0;
+            let closeToBinId = 0;
+            let tokenBalanceLamports = new BN(0);
+            
             try {
                 const positionData = await dlmmPool.getPosition(positionPubKey);
                 if (positionData && positionData.positionData) {
@@ -373,9 +380,22 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     const bins = Array.isArray(pd.positionBinData) ? pd.positionBinData : [];
                     hasLiquidity = bins.some(bin => new BN(bin.positionLiquidity || "0").gt(new BN(0)));
                 }
+                
+                const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(walletKeypair.publicKey);
+                const posData = userPositions.find(p => p.publicKey.toBase58() === positionPubKeyStr);
+                if (posData) {
+                    const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+                    if (dlmmPool.tokenX.publicKey.toBase58() !== WSOL_MINT) {
+                        tokenBalanceLamports = new BN(posData.positionData.totalXAmount);
+                    } else {
+                        tokenBalanceLamports = new BN(posData.positionData.totalYAmount);
+                    }
+                }
             } catch (e) {
                 console.log(`[LIVE] Could not check liquidity state: ${e.message}`);
             }
+
+            let mainTxs = [];
 
             if (hasLiquidity) {
                 console.log(`[LIVE] Position has liquidity. Creating removeLiquidity transaction...`);
@@ -387,29 +407,91 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     bps: new BN(10000),
                     shouldClaimAndClose: true
                 });
-                
-                const txs = Array.isArray(removeTx) ? removeTx : [removeTx];
-                for (let i = 0; i < txs.length; i++) {
-                    const tx = txs[i];
-                    console.log(`[LIVE] Sending Remove TX ${i+1}/${txs.length}...`);
-                    const txid = await rpcRetryWrapper(async () => {
-                        const latestBlockHash = await connection.getLatestBlockhash();
-                        tx.recentBlockhash = latestBlockHash.blockhash;
-                        return await connection.sendTransaction(tx, [walletKeypair]);
-                    });
-                    txids.push(txid);
-                }
+                mainTxs = Array.isArray(removeTx) ? removeTx : [removeTx];
             } else {
                 console.log(`[LIVE] No position liquidity detected. Creating closePosition transaction...`);
                 const closeTx = await dlmmPool.closePosition({
                     owner: walletKeypair.publicKey,
                     position: { publicKey: positionPubKey }
                 });
-                
-                const txs = Array.isArray(closeTx) ? closeTx : [closeTx];
-                for (let i = 0; i < txs.length; i++) {
-                    const tx = txs[i];
-                    console.log(`[LIVE] Sending Close TX ${i+1}/${txs.length}...`);
+                mainTxs = Array.isArray(closeTx) ? closeTx : [closeTx];
+            }
+            
+            // 3. Zap Out remaining Meme Tokens
+            let zapAttached = false;
+            let zapSuccess = false;
+            const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+            const tokenXStr = dlmmPool.tokenX.publicKey.toBase58();
+            const tokenYStr = dlmmPool.tokenY.publicKey.toBase58();
+            const inputMintStr = tokenXStr === WSOL_MINT ? tokenYStr : tokenXStr;
+            const outputMintStr = WSOL_MINT;
+
+            const inputMint = new PublicKey(inputMintStr);
+            const outputMint = new PublicKey(outputMintStr);
+
+            try {
+                // For zap out through Jupiter, if we don't have liquidity we might just have tokens in wallet
+                // But DLMM Zap Out uses the balance increase. If we had liquidity, tokenBalanceLamports has the amount we expect to receive.
+                // If tokenBalanceLamports is 0, let's check wallet balance to be safe, maybe we just want to zap what we already have.
+                if (tokenBalanceLamports.lte(new BN(0))) {
+                    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: inputMint });
+                    if (tokenAccounts.value.length > 0) {
+                        const amountStr = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.amount;
+                        tokenBalanceLamports = new BN(amountStr);
+                    }
+                }
+
+                if (tokenBalanceLamports.gt(new BN(0))) {
+                    console.log(`[LIVE] Expecting ~${tokenBalanceLamports.toString()} lamports of ${inputMintStr}. Preparing atomic Zap Out...`);
+                    
+                    const { getJupiterQuote, getJupiterSwapInstruction, getTokenProgramFromMint } = require("@meteora-ag/zap-sdk");
+                    const zap = new Zap(connection, {
+                        jupiterApiUrl: "https://api.jup.ag",
+                        jupiterApiKey: process.env.JUPITER_API_KEY || "",
+                    });
+                    
+                    const quote = await getJupiterQuote(
+                        inputMint,
+                        outputMint,
+                        tokenBalanceLamports,
+                        40, // maxAccounts
+                        50, // slippageBps (0.5%)
+                        false, true, true,
+                        { jupiterApiKey: process.env.JUPITER_API_KEY || "" }
+                    );
+                    
+                    const swapInstructionResponse = await getJupiterSwapInstruction(walletKeypair.publicKey, quote, {
+                        jupiterApiKey: process.env.JUPITER_API_KEY || "",
+                    });
+                    
+                    const inputTokenProgram = await getTokenProgramFromMint(connection, inputMint);
+                    const outputTokenProgram = await getTokenProgramFromMint(connection, outputMint);
+                    
+                    const zapOutTx = await zap.zapOutThroughJupiter({
+                        user: walletKeypair.publicKey,
+                        inputMint: inputMint,
+                        outputMint: outputMint,
+                        inputTokenProgram: inputTokenProgram,
+                        outputTokenProgram: outputTokenProgram,
+                        jupiterSwapResponse: swapInstructionResponse,
+                        maxSwapAmount: tokenBalanceLamports,
+                        percentageToZapOut: 100 // 100% of the received tokens
+                    });
+
+                    // Append Zap Out instructions to the last transaction (the one that actually removes liquidity/closes)
+                    const lastTx = mainTxs[mainTxs.length - 1];
+                    lastTx.add(zapOutTx);
+                    zapAttached = true;
+                    console.log(`[LIVE] Zap Out through Jupiter attached to transaction.`);
+                }
+            } catch (e) {
+                console.log(`[LIVE] Zap Out preparation failed: ${e.message}. Proceeding without atomic Zap Out.`);
+            }
+
+            try {
+                for (let i = 0; i < mainTxs.length; i++) {
+                    const tx = mainTxs[i];
+                    console.log(`[LIVE] Sending TX ${i+1}/${mainTxs.length}...`);
                     const txid = await rpcRetryWrapper(async () => {
                         const latestBlockHash = await connection.getLatestBlockhash();
                         tx.recentBlockhash = latestBlockHash.blockhash;
@@ -417,57 +499,97 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     });
                     txids.push(txid);
                 }
-            }
-            
-            // 3. Zap Out remaining Meme Tokens
-            try {
-                const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-                const tokenXStr = dlmmPool.tokenX.publicKey.toBase58();
-                const tokenYStr = dlmmPool.tokenY.publicKey.toBase58();
-                const inputMintStr = tokenXStr === WSOL_MINT ? tokenYStr : tokenXStr;
-                const outputMintStr = WSOL_MINT;
-
-                const inputMint = new PublicKey(inputMintStr);
-                const outputMint = new PublicKey(outputMintStr);
-
-                // Check remaining balance of inputMint
-                const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: inputMint });
-                let tokenBalanceLamports = new BN(0);
-                if (tokenAccounts.value.length > 0) {
-                    const amountStr = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.amount;
-                    tokenBalanceLamports = new BN(amountStr);
-                }
-
-                if (tokenBalanceLamports.gt(new BN(0))) {
-                    console.log(`[LIVE] Found ${tokenBalanceLamports.toString()} lamports of ${inputMintStr}. Zapping out to SOL...`);
-                    const zap = new Zap(connection);
-                    const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
-                    
-                    const zapTx = await zap.zapOutThroughDlmm({
-                        user: walletKeypair.publicKey,
-                        lbPairAddress: poolAddress,
-                        inputMint: inputMint,
-                        outputMint: outputMint,
-                        inputTokenProgram: TOKEN_PROGRAM_ID,
-                        outputTokenProgram: TOKEN_PROGRAM_ID,
-                        amountIn: tokenBalanceLamports,
-                        minimumSwapAmountOut: new BN(0), // Accept any amount for now to ensure it closes, or we can set slippage
-                        maxSwapAmount: tokenBalanceLamports,
-                        percentageToZapOut: 100
-                    });
-
-                    const txid = await rpcRetryWrapper(async () => {
-                        const latestBlockHash = await connection.getLatestBlockhash();
-                        zapTx.recentBlockhash = latestBlockHash.blockhash;
-                        return await connection.sendTransaction(zapTx, [walletKeypair]);
-                    });
-                    console.log(`[LIVE] Zap Out TX:`, txid);
-                    txids.push(txid);
-                } else {
-                    console.log(`[LIVE] No remaining Meme tokens to Zap Out.`);
-                }
+                zapSuccess = zapAttached;
             } catch (e) {
-                console.log(`[LIVE] Zap Out failed: ${e.message}. Fallback to Jupiter swap will trigger. `);
+                if (zapAttached) {
+                    console.log(`[LIVE] Atomic transaction with Zap Out failed: ${e.message}. Retrying with manual fallback...`);
+                    txids.length = 0; // reset
+                    
+                    // Re-create mainTxs without Zap Out
+                    if (hasLiquidity) {
+                        const removeTx = await dlmmPool.removeLiquidity({
+                            position: positionPubKey,
+                            user: walletKeypair.publicKey,
+                            fromBinId: closeFromBinId,
+                            toBinId: closeToBinId,
+                            bps: new BN(10000),
+                            shouldClaimAndClose: true
+                        });
+                        mainTxs = Array.isArray(removeTx) ? removeTx : [removeTx];
+                    } else {
+                        const closeTx = await dlmmPool.closePosition({
+                            owner: walletKeypair.publicKey,
+                            position: { publicKey: positionPubKey }
+                        });
+                        mainTxs = Array.isArray(closeTx) ? closeTx : [closeTx];
+                    }
+
+                    for (let i = 0; i < mainTxs.length; i++) {
+                        const tx = mainTxs[i];
+                        console.log(`[LIVE] Sending Fallback TX ${i+1}/${mainTxs.length}...`);
+                        const txid = await rpcRetryWrapper(async () => {
+                            const latestBlockHash = await connection.getLatestBlockhash();
+                            tx.recentBlockhash = latestBlockHash.blockhash;
+                            return await connection.sendTransaction(tx, [walletKeypair]);
+                        });
+                        txids.push(txid);
+                    }
+                } else {
+                    throw e; // Failed for other reasons
+                }
+            }
+
+            // 4. Fallback Manual Swap if Zap Out wasn't attached or failed
+            if (!zapSuccess) {
+                try {
+                    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(walletKeypair.publicKey, { mint: inputMint });
+                    let actualTokenBalance = new BN(0);
+                    if (tokenAccounts.value.length > 0) {
+                        actualTokenBalance = new BN(tokenAccounts.value[0].account.data.parsed.info.tokenAmount.amount);
+                    }
+
+                    if (actualTokenBalance.gt(new BN(0))) {
+                        console.log(`[LIVE] Fallback: Found ${actualTokenBalance.toString()} of ${inputMintStr}. Swapping via Jupiter API...`);
+                        
+                        const quoteRes = await fetchWithRetry(`https://api.jup.ag/swap/v1/quote?inputMint=${inputMintStr}&outputMint=${WSOL_MINT}&amount=${actualTokenBalance.toString()}&slippageBps=50`);
+                        const quote = await quoteRes.json();
+
+                        if (quote.error) {
+                            console.log(`[LIVE] Fallback swap quote error: ${quote.error}`);
+                        } else {
+                            const swapRes = await fetchWithRetry("https://api.jup.ag/swap/v1/swap", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    quoteResponse: quote,
+                                    userPublicKey: walletKeypair.publicKey.toBase58(),
+                                    wrapAndUnwrapSol: true,
+                                }),
+                            });
+                            
+                            const swapData = await swapRes.json();
+                            if (swapData.swapTransaction) {
+                                const swapTransactionBuf = Buffer.from(swapData.swapTransaction, 'base64');
+                                let transaction = VersionedTransaction.deserialize(swapTransactionBuf);
+                                transaction.sign([walletKeypair]);
+
+                                const rawTransaction = transaction.serialize();
+                                const fallbackTxid = await rpcRetryWrapper(async () => {
+                                    return await connection.sendRawTransaction(rawTransaction, {
+                                        skipPreflight: true,
+                                        maxRetries: 2
+                                    });
+                                });
+                                console.log(`[LIVE] Fallback Swap TX: ${fallbackTxid}`);
+                                txids.push(fallbackTxid);
+                            } else {
+                                console.log(`[LIVE] Fallback swap failed to get transaction:`, swapData);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log(`[LIVE] Fallback swap failed: ${e.message}`);
+                }
             }
             
             console.log(`[LIVE] Successfully processed exit for position:`, txids);
@@ -613,6 +735,15 @@ async function syncManualPositions(connection, walletKeypair) {
                     console.log(`[Sync] Warning calculating invested:`, e.message);
                 }
                 
+                let minBinId, maxBinId;
+                try {
+                    const posAccount = await poolInstance.program.account.positionV2.fetch(new PublicKey(positionPubKeyStr));
+                    minBinId = posAccount.lowerBinId;
+                    maxBinId = posAccount.upperBinId;
+                } catch(e) {
+                    console.log(`[Sync] Failed to fetch bin bounds:`, e.message);
+                }
+
                 const newPos = {
                     positionPubKey: positionPubKeyStr,
                     poolAddress: lbPair.toBase58(),
@@ -622,6 +753,8 @@ async function syncManualPositions(connection, walletKeypair) {
                     investedSol: investedSol,
                     entryBinPrice: activeBin.price,
                     entryPriceUsd: entryPriceUsd,
+                    minBinId: minBinId,
+                    maxBinId: maxBinId,
                     timestamp: Date.now()
                 };
                 
