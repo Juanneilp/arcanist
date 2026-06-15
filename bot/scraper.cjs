@@ -274,6 +274,16 @@ async function runScraper() {
                     token.volumeTrend = volumeTrendStatus;
                 }
                 
+                // ATH Detection: if current market cap is >= 95% of all time high market cap
+                const currentMcap = parseFloat(token.market_cap) || 0;
+                const athMcap = parseFloat(token.history_highest_market_cap) || 0;
+                if (athMcap > 0 && currentMcap >= athMcap * 0.95) {
+                    token.is_new_ath = true;
+                    console.log(`🚀 [NEW ATH DETECTED] ${token.symbol} is at or near All-Time High!`);
+                } else {
+                    token.is_new_ath = false;
+                }
+                
                 finalTokens.push(token);
             }
         } else {
@@ -297,6 +307,7 @@ async function runScraper() {
                 let statsStr = `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k`;
                 if (t.latestSupertrend !== undefined) statsStr += ` | 📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}`;
                 if (t.volumeTrend !== undefined) statsStr += ` | 🌊 *Vol Trend:* ${t.volumeTrend} (${t.volumeChangePercent.toFixed(1)}%)`;
+                if (t.is_new_ath) statsStr += `\n🚀 *STATUS: NEW ATH DETECTED*`;
                 tgMsg += `${statsStr}\n`;
                 
                 let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k`;
