@@ -174,6 +174,9 @@ async function evaluateExitCondition(position) {
     return { shouldExit: false };
 }
 
+// Cache for DLMM Pool instances to prevent recreating them on every loop
+const dlmmPoolCache = {};
+
 async function monitoringLoop(connection, walletKeypair) {
     const configPath = path.join(__dirname, '..', 'user-config.json');
     let userConfig;
@@ -192,7 +195,6 @@ async function monitoringLoop(connection, walletKeypair) {
     // Global closeMode is now just a fallback if needed, but per-position closeMode is checked below.
     console.log(`[Monitor] Checking ${activePositions.length} active positions...`);
     
-    const poolActiveBins = {};
     const { updatePosition } = require('./state.cjs');
     let DLMM;
     try {
@@ -204,33 +206,42 @@ async function monitoringLoop(connection, walletKeypair) {
         if (posCloseMode === "manual") continue;
         
         if (DLMM) {
-            if (!poolActiveBins[pos.poolAddress]) {
+            if (!dlmmPoolCache[pos.poolAddress]) {
                 try {
-                    const dlmmPool = await DLMM.create(connection, new PublicKey(pos.poolAddress));
+                    dlmmPoolCache[pos.poolAddress] = await DLMM.create(connection, new PublicKey(pos.poolAddress), { cluster: "mainnet-beta" });
+                } catch(e) {
+                    console.error(`[Monitor] Failed to create DLMM for ${pos.poolAddress}:`, e.message);
+                }
+            }
+            
+            const dlmmPool = dlmmPoolCache[pos.poolAddress];
+            
+            if (dlmmPool) {
+                try {
+                    // BEST PRACTICE: Fetch fresh states instead of recreating the whole pool instance
+                    await dlmmPool.refetchStates();
                     const activeBin = await dlmmPool.getActiveBin();
-                    poolActiveBins[pos.poolAddress] = activeBin.binId;
-                } catch(e) {}
-            }
-            pos.activeBinId = poolActiveBins[pos.poolAddress];
-            
-            if (pos.minBinId === undefined || pos.maxBinId === undefined) {
-                try {
-                    const dlmmPool = await DLMM.create(connection, new PublicKey(pos.poolAddress));
-                    const posAccount = await dlmmPool.program.account.positionV2.fetch(new PublicKey(pos.positionPubKey));
-                    pos.minBinId = posAccount.lowerBinId;
-                    pos.maxBinId = posAccount.upperBinId;
-                    updatePosition(pos.positionPubKey, { minBinId: pos.minBinId, maxBinId: pos.maxBinId });
-                } catch(e) { console.error(`[Monitor] Error fetching posAccount for bounds:`, e.message); }
-            }
-            
-            if (pos.activeBinId !== undefined && pos.minBinId !== undefined && pos.maxBinId !== undefined) {
-                const isOOR = pos.activeBinId < pos.minBinId || pos.activeBinId > pos.maxBinId;
-                if (isOOR && !pos.oorTimestamp) {
-                    pos.oorTimestamp = Date.now();
-                    updatePosition(pos.positionPubKey, { oorTimestamp: pos.oorTimestamp });
-                } else if (!isOOR && pos.oorTimestamp) {
-                    pos.oorTimestamp = null;
-                    updatePosition(pos.positionPubKey, { oorTimestamp: null });
+                    pos.activeBinId = activeBin.binId;
+                    
+                    if (pos.minBinId === undefined || pos.maxBinId === undefined) {
+                        const posAccount = await dlmmPool.program.account.positionV2.fetch(new PublicKey(pos.positionPubKey));
+                        pos.minBinId = posAccount.lowerBinId;
+                        pos.maxBinId = posAccount.upperBinId;
+                        updatePosition(pos.positionPubKey, { minBinId: pos.minBinId, maxBinId: pos.maxBinId });
+                    }
+                    
+                    if (pos.activeBinId !== undefined && pos.minBinId !== undefined && pos.maxBinId !== undefined) {
+                        const isOOR = pos.activeBinId < pos.minBinId || pos.activeBinId > pos.maxBinId;
+                        if (isOOR && !pos.oorTimestamp) {
+                            pos.oorTimestamp = Date.now();
+                            updatePosition(pos.positionPubKey, { oorTimestamp: pos.oorTimestamp });
+                        } else if (!isOOR && pos.oorTimestamp) {
+                            pos.oorTimestamp = null;
+                            updatePosition(pos.positionPubKey, { oorTimestamp: null });
+                        }
+                    }
+                } catch(e) {
+                    console.error(`[Monitor] Error reading fresh states for ${pos.poolAddress}:`, e.message);
                 }
             }
         }

@@ -177,7 +177,7 @@ async function fetchMeteoraPools(query, allowedQuoteTokens = []) {
 async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, solLamports, minRange, maxRange, strategyOptions, mode = "dry_run") {
     const poolAddress = new PublicKey(poolAddressStr);
     console.log(`Initializing DLMM Pool instance for ${poolAddressStr}...`);
-    const dlmmPool = await DLMM.create(connection, poolAddress);
+    const dlmmPool = await DLMM.create(connection, poolAddress, { cluster: "mainnet-beta" });
     
     const activeBin = await dlmmPool.getActiveBin();
     console.log(`Current Active Bin Price: ${activeBin.price}`);
@@ -360,7 +360,7 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
     const positionPubKey = new PublicKey(positionPubKeyStr);
     
     console.log(`Initializing DLMM Pool instance for ${poolAddressStr}...`);
-    const dlmmPool = await DLMM.create(connection, poolAddress);
+    const dlmmPool = await DLMM.create(connection, poolAddress, { cluster: "mainnet-beta" });
     
     try {
         if (mode === "live") {
@@ -688,7 +688,7 @@ async function syncManualPositions(connection, walletKeypair) {
                 // Check if already in state
                 if (state.find(p => p.positionPubKey === positionPubKeyStr)) continue;
                 
-                const poolInstance = await DLMM.create(connection, lbPair);
+                const poolInstance = await DLMM.create(connection, lbPair, { cluster: "mainnet-beta" });
                 const activeBin = await poolInstance.getActiveBin();
                 
                 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
