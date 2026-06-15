@@ -300,7 +300,11 @@ async function runScraper() {
             let tgMsg = `🔍 *GMGN Scraper Results: ${finalTokens.length} Tokens* 🔍\n━━━━━━━━━━━━━━━━━━\n`;
             finalTokens.forEach(t => {
                 logMsg += `- ${t.symbol} (${t.address}) ST: ${t.latestSupertrend || 'N/A'}, Vol: ${t.volumeTrend || 'N/A'}\n`;
-                tgMsg += `💎 *${t.name}* (${t.symbol})\n`;
+                
+                const cleanName = t.name ? t.name.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                const cleanSymbol = t.symbol ? t.symbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                
+                tgMsg += `💎 *${cleanName}* (${cleanSymbol})\n`;
                 tgMsg += `🔗 \`${t.address}\`\n`;
                 tgMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
                 
@@ -322,7 +326,11 @@ async function runScraper() {
             sendMessage(`🔍 *Scraper Run Finished:*\nNo candidates passed the filters.`);
         }
     } catch (e) {
-        console.error("Execution failed.", e);
+        if (e.stdout) {
+            console.error(`API Execution failed: ${e.stdout.trim()}`);
+        } else {
+            console.error(`Execution failed: ${e.message}`);
+        }
     }
 }
 
