@@ -671,22 +671,57 @@ async function syncManualPositions(connection, walletKeypair) {
     const lbclmmProgramId = new PublicKey(DLMM.LBCLMM_PROGRAM_IDS['mainnet-beta']);
     
     try {
-        const accounts = await connection.getProgramAccounts(lbclmmProgramId, {
-            filters: [DLMM.positionOwnerFilter(walletKeypair.publicKey)],
-            commitment: 'confirmed'
+        const allPositionsMap = await DLMM.getAllLbPairPositionsByUser(connection, walletKeypair.publicKey);
+        const onChainPubkeys = [];
+        const onChainDetails = {};
+        
+        allPositionsMap.forEach((positions, poolAddress) => {
+            for (const p of positions) {
+                const pubKeyStr = p.publicKey.toBase58();
+                onChainPubkeys.push(pubKeyStr);
+                onChainDetails[pubKeyStr] = {
+                    poolAddress,
+                    posData: p
+                };
+            }
         });
         
-        const state = readState();
+        let state = readState();
+        let removedCount = 0;
+        const activeState = [];
+        
+        // 1. Ghost Cleanup: Remove positions not found on-chain (grace period 5 minutes)
+        for (const pos of state) {
+            const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
+            if (!onChainPubkeys.includes(pos.positionPubKey)) {
+                if (ageMinutes > 5) {
+                    console.log(`[Sync] Removing ghost position ${pos.tokenSymbol} (${pos.positionPubKey}) - Not found on-chain.`);
+                    removedCount++;
+                    continue;
+                } else {
+                    console.log(`[Sync] Position ${pos.tokenSymbol} not found on-chain, but age is only ${ageMinutes}m. Waiting...`);
+                }
+            }
+            activeState.push(pos);
+        }
+        
+        if (removedCount > 0) {
+            saveState(activeState);
+            state = activeState; // Update local variable
+            console.log(`[Sync] Cleaned ${removedCount} ghost position(s) from state.`);
+        }
+        
         let addedCount = 0;
         let syncedPositions = [];
         
-        for (const accountInfo of accounts) {
+        // 2. Add manual positions found on-chain that are not in our state
+        for (const positionPubKeyStr of onChainPubkeys) {
             try {
-                let lbPair = new PublicKey(accountInfo.account.data.slice(8, 40));
-                const positionPubKeyStr = accountInfo.pubkey.toBase58();
-                
                 // Check if already in state
                 if (state.find(p => p.positionPubKey === positionPubKeyStr)) continue;
+                
+                const { poolAddress, posData } = onChainDetails[positionPubKeyStr];
+                let lbPair = new PublicKey(poolAddress);
                 
                 const poolInstance = await DLMM.create(connection, lbPair, { cluster: "mainnet-beta" });
                 const activeBin = await poolInstance.getActiveBin();
