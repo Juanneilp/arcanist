@@ -298,6 +298,11 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
         console.log(`Loaded ${candidates.length} candidate(s) from JSON.`);
         
         const activePositions = readState();
+        
+        // Filter out candidates that are already in activePositions to prevent duplicate token entries
+        const activeMints = activePositions.map(p => p.tokenMint);
+        candidates = candidates.filter(c => !activeMints.includes(c.address));
+        
         // If autoEntry is disabled, we still want to show the top 3 (or maxPositions) candidates.
         const availableSlots = autoEntry ? (maxPositions - activePositions.length) : maxPositions;
         
@@ -508,10 +513,18 @@ async function runBot() {
             const actuallyOpen = currentActivePositions.filter(p => openPubKeys.includes(p.positionPubKey));
             
             // If some positions are closed on-chain but still in state, clean them up locally
+            // ONLY IF they are older than 30 minutes to prevent deleting new positions due to Datapi lag
             const closedPositions = currentActivePositions.filter(p => !openPubKeys.includes(p.positionPubKey));
+            const now = Date.now();
             closedPositions.forEach(p => {
-                console.log(`[Report] Auto-removing position ${p.positionPubKey} from state as it's no longer open on Meteora.`);
-                removePosition(p.positionPubKey);
+                const ageMinutes = p.timestamp ? (now - p.timestamp) / 60000 : 0;
+                if (ageMinutes > 30) {
+                    console.log(`[Report] Auto-removing position ${p.positionPubKey} from state as it's no longer open on Meteora (age: ${ageMinutes.toFixed(1)}m).`);
+                    removePosition(p.positionPubKey);
+                } else {
+                    console.log(`[Report] Position ${p.positionPubKey} missing from Datapi, but it's only ${ageMinutes.toFixed(1)}m old. Keeping it in state.`);
+                    actuallyOpen.push(p); // Put it back since it's probably just Datapi lagging
+                }
             });
             
             currentActivePositions = actuallyOpen;

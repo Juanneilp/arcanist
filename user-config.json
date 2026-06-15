@@ -57,11 +57,13 @@
     "closeMode": "auto"
   },
   "exitConfig": {
-    "minUsdDustValueToSwap": 0.5,
+    "minUsdDustValueToSwap": 0.2,
     "tpPercentage": 0,
     "slPercentage": 0,
     "maxHoldHours": 24,
-    "minHoldMinutes": 15,
+    "minHoldMinutes": 60,
+    "maxOorDistance": 20,
+    "maxOorMinutes": 30,
     "rsi": {
       "period": 2,
       "upperLimit": 90
