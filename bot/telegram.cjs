@@ -85,9 +85,9 @@ if (token && token !== 'your_telegram_bot_token') {
                 if (aiPositions.length > 0) {
                     msg += `*AI Positions*\n`;
                     aiPositions.forEach(pos => {
-                        const details = meteoraDetails ? meteoraDetails[pos.positionPubKey] : null;
-                        const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
                         const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
+                        const details = (meteoraDetails && ageMinutes >= 1) ? meteoraDetails[pos.positionPubKey] : null;
+                        const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
                         
                         msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
                         if (details) {
@@ -115,9 +115,9 @@ if (token && token !== 'your_telegram_bot_token') {
                 if (manualPositions.length > 0) {
                     msg += `*Manual Positions*\n`;
                     manualPositions.forEach(pos => {
-                        const details = meteoraDetails ? meteoraDetails[pos.positionPubKey] : null;
-                        const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
                         const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
+                        const details = (meteoraDetails && ageMinutes >= 1) ? meteoraDetails[pos.positionPubKey] : null;
+                        const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
                         
                         msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
                         if (details) {
