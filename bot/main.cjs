@@ -83,10 +83,14 @@ async function evaluateExitCondition(position) {
         
         const lastIdx = closes.length - 1;
         const currentClose = closes[lastIdx];
-        const currentRsi = rsiArr[lastIdx];
-        const currentBbUpper = bb.upper[lastIdx];
-        const currentMacdHist = macd.histogram[lastIdx];
-        const prevMacdHist = macd.histogram[lastIdx - 1];
+        
+        // Use the last closed candle for indicators to avoid repainting/premature signals
+        const closedIdx = lastIdx - 1;
+        const indicatorClose = closes[closedIdx];
+        const currentRsi = rsiArr[closedIdx];
+        const currentBbUpper = bb.upper[closedIdx];
+        const currentMacdHist = macd.histogram[closedIdx];
+        const prevMacdHist = macd.histogram[closedIdx - 1];
         
         if (currentRsi === null || currentBbUpper === null || currentMacdHist === null || prevMacdHist === null) {
             return { shouldExit: false };
@@ -149,7 +153,7 @@ async function evaluateExitCondition(position) {
             }
 
             const rsiConditionMet = currentRsi > rsiConf.upperLimit;
-            const priceAboveBbUpper = currentClose > currentBbUpper;
+            const priceAboveBbUpper = indicatorClose > currentBbUpper;
             const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
             
             if (rsiConditionMet && priceAboveBbUpper) {
@@ -234,7 +238,8 @@ async function monitoringLoop(connection, walletKeypair) {
         const exitData = await evaluateExitCondition(pos);
         if (exitData.shouldExit) {
             console.log(`[Monitor] Exit condition met for position ${pos.positionPubKey}. Reason: ${exitData.reason}`);
-            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${pos.tokenSymbol}\nReason: ${exitData.reason}`);
+            const timeStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${pos.tokenSymbol}\nReason: ${exitData.reason}\n⏱ *Time:* ${timeStr}`);
             
             try {
                 // 1. Remove Liquidity
@@ -396,7 +401,8 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                     addPosition(newPos);
                     logTrade('ENTRY', newPos);
                     
-                    sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\`\n💡 *Reason:* ${newPos.entryReason}`);
+                    const timeStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
+                    sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\`\n💡 *Reason:* ${newPos.entryReason}\n⏱ *Time:* ${timeStr}`);
                     
                 } catch (e) {
                     console.error(`Error processing ${token.symbol}:`, e.message);

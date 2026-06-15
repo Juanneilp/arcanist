@@ -54,9 +54,11 @@ function logTrade(action, positionData) {
         } catch (e) {}
     }
     
+    const now = new Date();
     history.push({
         action, // 'ENTRY' or 'EXIT'
-        timestamp: new Date().toISOString(),
+        timestamp: now.getTime(),
+        timeStr: now.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB',
         ...positionData
     });
     

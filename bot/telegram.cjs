@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -25,6 +25,7 @@ if (token && token !== 'your_telegram_bot_token') {
                         `/history - View recent trade history\n` +
                         `/toggle_close <num> - Toggle close mode per posisi\n` +
                         `/toggle_auto - Toggle Global Auto Entry/Close Mode\n` +
+                        `/scrape - Force run scraper & AI screening\n` +
                         `/chat [message] - Chat with Hermes AI Analyst`;
         ctx.reply(helpMsg);
     });
@@ -321,6 +322,44 @@ if (token && token !== 'your_telegram_bot_token') {
     // Command: /close_all
     bot.command('close_all', async (ctx) => {
         try {
+            const { readState } = require('./state.cjs');
+            
+            const positions = readState();
+            if (positions.length === 0) return ctx.reply("❌ No active positions to close.");
+            
+            const configPath = path.join(__dirname, '..', 'user-config.json');
+            let botMode = 'live';
+            if (fs.existsSync(configPath)) {
+                botMode = JSON.parse(fs.readFileSync(configPath, 'utf-8')).botMode || 'live';
+            }
+            
+            const msg = `⚠️ *KONFIRMASI CLOSE ALL*\n\n` +
+                        `Apakah Anda yakin ingin menutup *semua* (${positions.length}) posisi aktif?\n` +
+                        `Mode Bot: *${botMode.toUpperCase()}*`;
+
+            await ctx.reply(msg, {
+                parse_mode: 'Markdown',
+                ...Markup.inlineKeyboard([
+                    Markup.button.callback('⚠️ Ya, Tutup Semua', 'confirm_close_all'),
+                    Markup.button.callback('❌ Batal', 'cancel_close_all')
+                ])
+            });
+        } catch (e) {
+            ctx.reply(`❌ Error: ${e.message}`);
+        }
+    });
+
+    // Callback Action: Confirm Close All
+    bot.action('confirm_close_all', async (ctx) => {
+        try {
+            await ctx.answerCbQuery();
+        } catch (e) {}
+
+        try {
+            await ctx.editMessageText(`⏳ Memproses penutupan semua posisi...`);
+        } catch (e) {}
+
+        try {
             const { readState, removePosition } = require('./state.cjs');
             const { removeLiquidity } = require('./solana-dex.cjs');
             
@@ -355,6 +394,17 @@ if (token && token !== 'your_telegram_bot_token') {
             ctx.reply(`❌ Error during close_all: ${e.message}`);
         }
     });
+
+    // Callback Action: Cancel Close All
+    bot.action('cancel_close_all', async (ctx) => {
+        try {
+            await ctx.answerCbQuery();
+        } catch (e) {}
+        try {
+            await ctx.editMessageText(`❌ Operasi /close_all dibatalkan.`);
+        } catch (e) {}
+    });
+
 
     // Command: /history
     bot.command('history', async (ctx) => {
@@ -453,6 +503,44 @@ if (token && token !== 'your_telegram_bot_token') {
         }
     });
 
+    // Command: /scrape
+    bot.command('scrape', async (ctx) => {
+        try {
+            ctx.reply("⏳ Memulai proses screening/scraping secara manual...");
+            const { runScraper } = require('./scraper.cjs');
+            await runScraper();
+            
+            const candidatesPath = path.join(__dirname, '..', 'candidates.json');
+            if (fs.existsSync(candidatesPath)) {
+                let candidates = JSON.parse(fs.readFileSync(candidatesPath, 'utf-8'));
+                if (candidates.length > 0) {
+                    const { screenCandidates } = require('./ai-agent.cjs');
+                    ctx.reply(`🔍 Ditemukan ${candidates.length} candidates. Requesting Hermes AI screening...`);
+                    // AI Screening (Get top 3)
+                    candidates = await screenCandidates(candidates, 3);
+                    
+                    let aiMsg = `🤖 *Hermes AI Selection (Top ${candidates.length})* 🤖\n━━━━━━━━━━━━━━━━━━\n`;
+                    candidates.forEach((t, index) => {
+                        const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎';
+                        const cleanName = t.name ? t.name.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                        const cleanReason = t.ai_reason ? t.ai_reason.replace(/[_*`\[\]]/g, '') : '';
+                        aiMsg += `${rankEmoji} *${cleanName}* (${t.symbol})\n`;
+                        aiMsg += `🔗 \`${t.address}\`\n`;
+                        aiMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
+                        aiMsg += `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count}\n`;
+                        if (cleanReason) aiMsg += `💡 *Reason:* _${cleanReason}_\n`;
+                        aiMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                    });
+                    ctx.replyWithMarkdown(aiMsg);
+                }
+            }
+            
+            ctx.reply("✅ Proses screening selesai. Anda bisa menggunakan /open untuk entry manual.");
+        } catch (e) {
+            ctx.reply("❌ Error saat scraping: " + e.message);
+        }
+    });
+
     // Command: /chat
     bot.command('chat', async (ctx) => {
         const messageText = ctx.message.text.replace(/^\/chat\s*/, '').trim();
@@ -485,6 +573,7 @@ if (token && token !== 'your_telegram_bot_token') {
             { command: 'close', description: 'Close position (/close <number>)' },
             { command: 'close_all', description: 'Close all positions' },
             { command: 'toggle_auto', description: 'Toggle Global Auto Entry/Close Mode' },
+            { command: 'scrape', description: 'Force run scraper and AI screening' },
             { command: 'chat', description: 'Chat with Hermes AI Analyst' }
         ]).catch(e => console.error("Failed to set commands:", e.message));
     }).catch((e) => {
