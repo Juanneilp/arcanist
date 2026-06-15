@@ -26,6 +26,10 @@ if (token && token !== 'your_telegram_bot_token') {
                         `/toggle_close <num> - Toggle close mode per posisi\n` +
                         `/toggle_auto - Toggle Global Auto Entry/Close Mode\n` +
                         `/scrape - Force run scraper & AI screening\n` +
+                        `/getconfig [key] - View bot configuration\n` +
+                        `/setconfig <key> <value> - Update bot configuration\n` +
+                        `/blacklist <address> - Add token to blacklist\n` +
+                        `/unblacklist <address> - Remove token from blacklist\n` +
                         `/chat [message] - Chat with Hermes AI Analyst`;
         ctx.reply(helpMsg);
     });
@@ -546,6 +550,156 @@ if (token && token !== 'your_telegram_bot_token') {
         }
     });
 
+    // Command: /getconfig [key]
+    bot.command('getconfig', (ctx) => {
+        try {
+            const text = ctx.message.text.trim();
+            const parts = text.split(/\s+/);
+            
+            const configPath = path.join(__dirname, '..', 'user-config.json');
+            if (!fs.existsSync(configPath)) {
+                return ctx.reply("❌ user-config.json not found.");
+            }
+            
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            
+            if (parts.length > 1) {
+                const keyPath = parts[1];
+                const keys = keyPath.split('.');
+                let current = config;
+                for (const k of keys) {
+                    if (current && typeof current === 'object' && k in current) {
+                        current = current[k];
+                    } else {
+                        return ctx.reply(`❌ Key \`${keyPath}\` not found in config.`, { parse_mode: 'Markdown' });
+                    }
+                }
+                ctx.replyWithMarkdown(`*Key*: \`${keyPath}\`\n*Value*: \`${JSON.stringify(current, null, 2)}\``);
+            } else {
+                const configStr = JSON.stringify(config, null, 2);
+                if (configStr.length > 4000) {
+                    ctx.replyWithDocument({ source: configPath, filename: 'user-config.json' });
+                } else {
+                    ctx.replyWithMarkdown(`\`\`\`json\n${configStr}\n\`\`\``);
+                }
+            }
+        } catch (e) {
+            ctx.reply("❌ Failed to get config: " + e.message);
+        }
+    });
+
+    // Command: /setconfig <key> <value>
+    bot.command('setconfig', (ctx) => {
+        try {
+            const text = ctx.message.text.trim();
+            const parts = text.split(/\s+/);
+            if (parts.length < 3) {
+                return ctx.reply("❌ Invalid format. Use: /setconfig <key> <value>\nExample: /setconfig localFilters.minMarketCap 300000");
+            }
+            
+            const keyPath = parts[1];
+            const valueStr = parts.slice(2).join(' ');
+            
+            let value;
+            if (valueStr.toLowerCase() === 'true') value = true;
+            else if (valueStr.toLowerCase() === 'false') value = false;
+            else if (!isNaN(valueStr) && valueStr.trim() !== '') value = Number(valueStr);
+            else {
+                try {
+                    value = JSON.parse(valueStr);
+                } catch(e) {
+                    value = valueStr;
+                }
+            }
+
+            const configPath = path.join(__dirname, '..', 'user-config.json');
+            if (!fs.existsSync(configPath)) {
+                return ctx.reply("❌ user-config.json not found.");
+            }
+            
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            
+            const keys = keyPath.split('.');
+            let current = config;
+            for (let i = 0; i < keys.length - 1; i++) {
+                if (!(keys[i] in current) || typeof current[keys[i]] !== 'object') {
+                    current[keys[i]] = {};
+                }
+                current = current[keys[i]];
+            }
+            const lastKey = keys[keys.length - 1];
+            const oldValue = current[lastKey];
+            current[lastKey] = value;
+            
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            
+            let safeOldValue = oldValue === undefined ? "undefined" : JSON.stringify(oldValue);
+            let safeNewValue = JSON.stringify(value);
+            ctx.replyWithMarkdown(`✅ Config updated successfully!\n*Key*: \`${keyPath}\`\n*Old Value*: \`${safeOldValue}\`\n*New Value*: \`${safeNewValue}\``);
+        } catch (e) {
+            ctx.reply("❌ Failed to update config: " + e.message);
+        }
+    });
+
+    // Command: /blacklist <token_address>
+    bot.command('blacklist', (ctx) => {
+        try {
+            const text = ctx.message.text.trim();
+            const parts = text.split(/\s+/);
+            if (parts.length < 2) {
+                return ctx.reply("❌ Invalid format. Use: /blacklist <token_address>");
+            }
+            
+            const address = parts[1];
+            
+            const blacklistPath = path.join(__dirname, '..', 'blacklist.json');
+            let blacklist = [];
+            if (fs.existsSync(blacklistPath)) {
+                blacklist = JSON.parse(fs.readFileSync(blacklistPath, 'utf-8'));
+            }
+            
+            if (!blacklist.includes(address)) {
+                blacklist.push(address);
+                fs.writeFileSync(blacklistPath, JSON.stringify(blacklist, null, 2));
+                ctx.reply(`✅ Token \`${address}\` added to blacklist.`, { parse_mode: 'Markdown' });
+            } else {
+                ctx.reply(`⚠️ Token \`${address}\` is already in blacklist.`, { parse_mode: 'Markdown' });
+            }
+        } catch (e) {
+            ctx.reply("❌ Failed to add to blacklist: " + e.message);
+        }
+    });
+
+    // Command: /unblacklist <token_address>
+    bot.command('unblacklist', (ctx) => {
+        try {
+            const text = ctx.message.text.trim();
+            const parts = text.split(/\s+/);
+            if (parts.length < 2) {
+                return ctx.reply("❌ Invalid format. Use: /unblacklist <token_address>");
+            }
+            
+            const address = parts[1];
+            
+            const blacklistPath = path.join(__dirname, '..', 'blacklist.json');
+            let blacklist = [];
+            if (fs.existsSync(blacklistPath)) {
+                blacklist = JSON.parse(fs.readFileSync(blacklistPath, 'utf-8'));
+            }
+            
+            const index = blacklist.indexOf(address);
+            if (index !== -1) {
+                blacklist.splice(index, 1);
+                fs.writeFileSync(blacklistPath, JSON.stringify(blacklist, null, 2));
+                ctx.reply(`✅ Token \`${address}\` removed from blacklist.`, { parse_mode: 'Markdown' });
+            } else {
+                ctx.reply(`⚠️ Token \`${address}\` not found in blacklist.`, { parse_mode: 'Markdown' });
+            }
+        } catch (e) {
+            ctx.reply("❌ Failed to remove from blacklist: " + e.message);
+        }
+    });
+
     // Command: /chat
     bot.command('chat', async (ctx) => {
         const messageText = ctx.message.text.replace(/^\/chat\s*/, '').trim();
@@ -579,7 +733,11 @@ if (token && token !== 'your_telegram_bot_token') {
             { command: 'close_all', description: 'Close all positions' },
             { command: 'toggle_auto', description: 'Toggle Global Auto Entry/Close Mode' },
             { command: 'scrape', description: 'Force run scraper and AI screening' },
-            { command: 'chat', description: 'Chat with Hermes AI Analyst' }
+            { command: 'getconfig', description: 'View config (/getconfig [key])' },
+            { command: 'setconfig', description: 'Modify config (/setconfig <key> <value>)' },
+            { command: 'chat', description: 'Chat with Hermes AI Analyst' },
+            { command: 'blacklist', description: 'Add token to blacklist' },
+            { command: 'unblacklist', description: 'Remove token from blacklist' }
         ]).catch(e => console.error("Failed to set commands:", e.message));
     }).catch((e) => {
         console.error("Failed to launch Telegraf bot:", e.message);

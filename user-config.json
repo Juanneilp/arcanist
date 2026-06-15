@@ -17,7 +17,7 @@
     "minVolume24h": 1000000,
     "minTotalFees": 50,
     "minSmartDegenCount": 5,
-    "minHolders": 100,
+    "minHolders": 1000,
     "minTokenAgeHours": 6,
     "maxTop10Percentage": 30,
     "maxDevHoldsPercentage": 5,

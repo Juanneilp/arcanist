@@ -118,17 +118,30 @@ function calculateVolumeTrend(klines, period, accThreshold, decThreshold) {
 
 // --- SCRAPER LOGIC ---
 const configPath = path.join(__dirname, '..', 'user-config.json');
-let config;
-try {
-    config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-} catch (error) {
-    console.error("Failed to read user-config.json.");
-    process.exit(1);
+let config, apiSettings, localFilters, techFilters, blacklist;
+function loadConfig() {
+    try {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        apiSettings = config.apiSettings;
+        localFilters = config.localFilters;
+        techFilters = config.technicalFilters || {};
+    } catch (error) {
+        console.error("Failed to read user-config.json.");
+        if (!config) process.exit(1);
+    }
+    const blacklistPath = path.join(__dirname, '..', 'blacklist.json');
+    try {
+        if (fs.existsSync(blacklistPath)) {
+            blacklist = JSON.parse(fs.readFileSync(blacklistPath, 'utf-8'));
+        } else {
+            blacklist = [];
+        }
+    } catch (error) {
+        console.error("Failed to read blacklist.json.");
+        blacklist = [];
+    }
 }
-
-const apiSettings = config.apiSettings;
-const localFilters = config.localFilters;
-const techFilters = config.technicalFilters || {};
+loadConfig();
 
 console.log(`Starting GMGN Scraper...`);
 
@@ -155,6 +168,7 @@ async function fetchKlineData(address, timeframe) {
 }
 
 async function runScraper() {
+    loadConfig();
     console.log(`Executing API Request for Trending Tokens...`);
     try {
         const args = [
@@ -181,6 +195,7 @@ async function runScraper() {
 
         const tokens = response.data.rank || [];
         const fundamentalFilteredTokens = tokens.filter(token => {
+            if (blacklist && blacklist.includes(token.address)) return false;
             const marketCap = parseFloat(token.market_cap) || 0;
             const volume24h = parseFloat(token.volume) || 0; 
             const gasFee = parseFloat(token.gas_fee) || 0; 
