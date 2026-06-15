@@ -92,6 +92,30 @@ function calculateSupertrend(data, period, multiplier) {
     return { trend, supertrend, upperband, lowerband };
 }
 
+function calculateVolumeTrend(klines, period, accThreshold, decThreshold) {
+    if (!klines || klines.length < period * 2) return null;
+    let recentVolumeSum = 0;
+    for (let i = klines.length - period; i < klines.length; i++) {
+        recentVolumeSum += klines[i].volume;
+    }
+    const recentAvg = recentVolumeSum / period;
+
+    let prevVolumeSum = 0;
+    for (let i = klines.length - (period * 2); i < klines.length - period; i++) {
+        prevVolumeSum += klines[i].volume;
+    }
+    const prevAvg = prevVolumeSum / period;
+
+    if (prevAvg === 0) return { trend: 'Stable', changePercent: 0 };
+    const changePercent = ((recentAvg - prevAvg) / prevAvg) * 100;
+    
+    let trend = 'Stable';
+    if (changePercent > accThreshold) trend = 'Accelerating';
+    else if (changePercent < decThreshold) trend = 'Decelerating';
+
+    return { trend, changePercent, recentAvg, prevAvg };
+}
+
 // --- SCRAPER LOGIC ---
 const configPath = path.join(__dirname, '..', 'user-config.json');
 let config;
@@ -178,13 +202,16 @@ async function runScraper() {
         });
 
         const finalTokens = [];
-        if (techFilters.supertrend && techFilters.supertrend.enabled) {
-            const stConf = techFilters.supertrend;
+        const stConf = techFilters.supertrend || { enabled: false };
+        const vtConf = techFilters.volumeTrend || { enabled: false };
+
+        if (stConf.enabled || vtConf.enabled) {
+            const timeframe = stConf.enabled ? stConf.timeframe : "15m";
             for (let i = 0; i < fundamentalFilteredTokens.length; i++) {
                 const token = fundamentalFilteredTokens[i];
                 process.stdout.write(`[${i+1}/${fundamentalFilteredTokens.length}] Checking chart for ${token.symbol}... `);
                 
-                const klines = await fetchKlineData(token.address, stConf.timeframe);
+                const klines = await fetchKlineData(token.address, timeframe);
                 if (!klines || klines.length === 0) {
                     console.log(`Failed to fetch K-Line data.`);
                     continue;
@@ -194,27 +221,60 @@ async function runScraper() {
                     open: parseFloat(k.open),
                     high: parseFloat(k.high),
                     low: parseFloat(k.low),
-                    close: parseFloat(k.close)
+                    close: parseFloat(k.close),
+                    volume: parseFloat(k.volume) || 0
                 }));
 
-                const result = calculateSupertrend(sortedKlines, stConf.period, stConf.multiplier);
-                if (!result || result.trend.length === 0) {
-                    console.log(`Not enough data for Supertrend.`);
-                    continue;
+                let passST = true;
+                let latestSupertrend = 0;
+                let latestPrice = sortedKlines[sortedKlines.length - 1].close;
+
+                if (stConf.enabled) {
+                    const result = calculateSupertrend(sortedKlines, stConf.period, stConf.multiplier);
+                    if (!result || result.trend.length === 0) {
+                        console.log(`Not enough data for Supertrend.`);
+                        continue;
+                    }
+                    const latestTrend = result.trend[result.trend.length - 1];
+                    latestSupertrend = result.supertrend[result.supertrend.length - 1];
+                    if (latestTrend !== 1) {
+                        passST = false;
+                        console.log(`FAIL (Red Supertrend) - Price: $${latestPrice}, ST: $${latestSupertrend}`);
+                    }
                 }
 
-                const latestTrend = result.trend[result.trend.length - 1];
-                const latestSupertrend = result.supertrend[result.supertrend.length - 1];
-                const latestPrice = sortedKlines[sortedKlines.length - 1].close;
+                if (!passST) continue;
 
-                if (latestTrend === 1) {
-                    console.log(`PASS (Green Supertrend) - Price: $${latestPrice}, ST: $${latestSupertrend}`);
-                    token.latestSupertrend = latestSupertrend;
-                    token.latestPrice = latestPrice;
-                    finalTokens.push(token);
-                } else {
-                    console.log(`FAIL (Red Supertrend) - Price: $${latestPrice}, ST: $${latestSupertrend}`);
+                let passVT = true;
+                let volumeTrendStatus = 'N/A';
+                let vtChange = 0;
+
+                if (vtConf.enabled) {
+                    const vtResult = calculateVolumeTrend(sortedKlines, vtConf.period || 3, vtConf.acceleratingThreshold || 10, vtConf.deceleratingThreshold || -10);
+                    if (vtResult) {
+                        volumeTrendStatus = vtResult.trend;
+                        vtChange = vtResult.changePercent;
+                        if (volumeTrendStatus === 'Decelerating') {
+                            passVT = false;
+                            console.log(`FAIL (Decelerating Volume: ${vtChange.toFixed(2)}%)`);
+                        }
+                    } else {
+                         console.log(`Not enough data for Volume Trend.`);
+                         passVT = false;
+                    }
                 }
+
+                if (!passVT) continue;
+
+                console.log(`PASS (ST Hijau, Vol ${volumeTrendStatus}) - Price: $${latestPrice}`);
+                if (stConf.enabled) token.latestSupertrend = latestSupertrend;
+                token.latestPrice = latestPrice;
+                if (vtConf.enabled) {
+                    token.volumeChangePercent = vtChange;
+                    token.volumeTrend = volumeTrendStatus;
+                }
+                
+                finalTokens.push(token);
             }
         } else {
             finalTokens.push(...fundamentalFilteredTokens);
@@ -229,12 +289,19 @@ async function runScraper() {
             let logMsg = `[+] Scraper found ${finalTokens.length} candidates:\n`;
             let tgMsg = `🔍 *GMGN Scraper Results: ${finalTokens.length} Tokens* 🔍\n━━━━━━━━━━━━━━━━━━\n`;
             finalTokens.forEach(t => {
-                logMsg += `- ${t.symbol} (${t.address}) ST: ${t.latestSupertrend}\n`;
+                logMsg += `- ${t.symbol} (${t.address}) ST: ${t.latestSupertrend || 'N/A'}, Vol: ${t.volumeTrend || 'N/A'}\n`;
                 tgMsg += `💎 *${t.name}* (${t.symbol})\n`;
                 tgMsg += `🔗 \`${t.address}\`\n`;
                 tgMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
-                tgMsg += `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}\n`;
-                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k, Supertrend Hijau`;
+                
+                let statsStr = `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k`;
+                if (t.latestSupertrend !== undefined) statsStr += ` | 📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}`;
+                if (t.volumeTrend !== undefined) statsStr += ` | 🌊 *Vol Trend:* ${t.volumeTrend} (${t.volumeChangePercent.toFixed(1)}%)`;
+                tgMsg += `${statsStr}\n`;
+                
+                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k`;
+                if (techFilters.supertrend?.enabled) reasonStr += `, Supertrend Hijau`;
+                if (techFilters.volumeTrend?.enabled) reasonStr += `, Vol Trend tidak Decelerating`;
                 tgMsg += `💡 *Reason:* _${reasonStr}_\n\n`;
             });
             console.log(logMsg);

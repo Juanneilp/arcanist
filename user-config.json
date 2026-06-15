@@ -26,6 +26,12 @@
       "timeframe": "15m",
       "period": 10,
       "multiplier": 3
+    },
+    "volumeTrend": {
+      "enabled": true,
+      "period": 8,
+      "acceleratingThreshold": 10,
+      "deceleratingThreshold": -40
     }
   },
   "meteoraConfig": {

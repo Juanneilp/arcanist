@@ -89,13 +89,21 @@ async function screenCandidates(candidates, maxLimit) {
         market_cap: c.market_cap,
         holder_count: c.holder_count,
         smart_degen_count: c.smart_degen_count,
-        is_honeypot: c.is_honeypot
+        is_honeypot: c.is_honeypot,
+        volume_trend: c.volumeTrend,
+        volume_change_percent: c.volumeChangePercent
     }));
 
     const promptText = `
 I have ${candidates.length} token candidates, but I can only enter ${maxLimit} positions. 
 Please analyze the following candidates and select the best ${maxLimit}.
-Return ONLY a valid JSON array of objects. Each object MUST have exactly two fields: "address" (the token address) and "ai_reason" (string explaining in Indonesian why it was chosen, max 2 sentences). Do not include markdown formatting like \`\`\`json.
+
+CRITICAL RANKING RULE:
+You MUST prioritize tokens based on 'volume_change_percent' (Volume Trend Analysis). For our wide-range Liquidity Pool strategy, sustained volume is the absolute most important metric.
+1. Higher 'volume_change_percent' is always better (positive means accelerating, near zero means highly stable).
+2. Tokens with lower/negative 'volume_change_percent' MUST be ranked lower or rejected, even if they have higher market cap, holder count, or smart degen count.
+
+Return ONLY a valid JSON array of objects, sorted from best to worst. Each object MUST have exactly two fields: "address" (the token address) and "ai_reason" (string explaining in Indonesian why it was chosen, specifically mentioning its Volume Trend data, max 2 sentences). Do not include markdown formatting like \`\`\`json.
 
 Candidates:
 ${JSON.stringify(essentialCandidates, null, 2)}

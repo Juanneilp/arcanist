@@ -527,7 +527,12 @@ if (token && token !== 'your_telegram_bot_token') {
                         aiMsg += `${rankEmoji} *${cleanName}* (${t.symbol})\n`;
                         aiMsg += `🔗 \`${t.address}\`\n`;
                         aiMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
-                        aiMsg += `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count}\n`;
+                        
+                        let statsStr = `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count}`;
+                        if (t.latestSupertrend !== undefined) statsStr += `\n📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}`;
+                        if (t.volumeTrend !== undefined) statsStr += ` | 🌊 *Vol Trend:* ${t.volumeTrend} (${(t.volumeChangePercent || 0).toFixed(1)}%)`;
+                        aiMsg += `${statsStr}\n`;
+                        
                         if (cleanReason) aiMsg += `💡 *Reason:* _${cleanReason}_\n`;
                         aiMsg += `━━━━━━━━━━━━━━━━━━\n`;
                     });
