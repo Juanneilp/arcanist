@@ -386,9 +386,9 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                 if (posData) {
                     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
                     if (dlmmPool.tokenX.publicKey.toBase58() !== WSOL_MINT) {
-                        tokenBalanceLamports = new BN(posData.positionData.totalXAmount);
+                        tokenBalanceLamports = new BN(posData.positionData.totalXAmount).add(new BN(posData.positionData.feeX));
                     } else {
-                        tokenBalanceLamports = new BN(posData.positionData.totalYAmount);
+                        tokenBalanceLamports = new BN(posData.positionData.totalYAmount).add(new BN(posData.positionData.feeY));
                     }
                 }
             } catch (e) {
