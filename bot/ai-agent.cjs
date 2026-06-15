@@ -84,6 +84,22 @@ async function screenCandidates(candidates, maxLimit) {
         finalSelection.push(...athCandidates.slice(0, maxLimit));
     }
     
+    const remainingSlotsAfterATH = maxLimit - finalSelection.length;
+    
+    // 2. Prioritize Best Volume Trend
+    if (remainingSlotsAfterATH > 0 && normalCandidates.length > 0) {
+        normalCandidates.sort((a, b) => (b.volumeChangePercent || 0) - (a.volumeChangePercent || 0));
+        
+        // Take the top volume trend candidate
+        const bestVolCandidate = normalCandidates.shift(); // removes and returns the first element
+        console.log(`[AI-Agent] Prioritizing Best Volume Trend candidate: ${bestVolCandidate.symbol} (${bestVolCandidate.volumeChangePercent?.toFixed(2)}%)`);
+        
+        if (!bestVolCandidate.ai_reason) {
+            bestVolCandidate.ai_reason = `🌊 Volume Trend Terbaik (${bestVolCandidate.volumeChangePercent?.toFixed(1)}% Spike). (Prioritas Otomatis)`;
+        }
+        finalSelection.push(bestVolCandidate);
+    }
+    
     const remainingSlots = maxLimit - finalSelection.length;
     
     if (remainingSlots > 0 && normalCandidates.length > 0) {
