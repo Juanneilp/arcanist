@@ -47,7 +47,7 @@
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
     "maxActivePositions": 1,
-    "entryMode": "auto",
+    "entryMode": "manual",
     "closeMode": "auto"
   },
   "exitConfig": {

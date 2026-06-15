@@ -38,7 +38,7 @@ async function evaluateExitCondition(position) {
     try {
         userConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     } catch (e) {
-        return false;
+        return { shouldExit: false };
     }
     
     const exitConf = userConfig.exitConfig || {};
@@ -71,7 +71,7 @@ async function evaluateExitCondition(position) {
         
         if (!response.list || response.list.length < Math.max(rsiConf.period, bbConf.period, macdConf.slow) + 10) {
             console.log(`Not enough kline data to evaluate exit for ${position.tokenSymbol}.`);
-            return false;
+            return { shouldExit: false };
         }
         
         const sortedKlines = response.list.sort((a, b) => a.time - b.time);
@@ -89,54 +89,85 @@ async function evaluateExitCondition(position) {
         const prevMacdHist = macd.histogram[lastIdx - 1];
         
         if (currentRsi === null || currentBbUpper === null || currentMacdHist === null || prevMacdHist === null) {
-            return false;
+            return { shouldExit: false };
         }
         
         // Timeout check
         const durationHours = (Date.now() - position.timestamp) / 3600000;
         if (maxHoldHours > 0 && durationHours >= maxHoldHours) {
             console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Timeout hit (${durationHours.toFixed(2)}h >= ${maxHoldHours}h)`);
-            return true;
+            return { shouldExit: true, reason: `Timeout hit (${durationHours.toFixed(2)}h >= ${maxHoldHours}h)` };
         }
 
-        // PnL check
+        // PnL check (Absolute SL/TP still apply regardless of OOR)
         if (position.entryPriceUsd) {
             const pnlPercentage = ((currentClose - position.entryPriceUsd) / position.entryPriceUsd) * 100;
             if (tpPercentage > 0 && pnlPercentage >= tpPercentage) {
                 console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Take Profit hit (+${pnlPercentage.toFixed(2)}% >= ${tpPercentage}%)`);
-                return true;
+                return { shouldExit: true, reason: `Take Profit hit (+${pnlPercentage.toFixed(2)}% >= ${tpPercentage}%)` };
             }
             if (slPercentage > 0 && pnlPercentage <= -slPercentage) {
                 console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Stop Loss hit (${pnlPercentage.toFixed(2)}% <= -${slPercentage}%)`);
-                return true;
+                return { shouldExit: true, reason: `Stop Loss hit (${pnlPercentage.toFixed(2)}% <= -${slPercentage}%)` };
             }
         }
         
-        // Cooldown check for indicator exits
-        const durationMinutes = (Date.now() - position.timestamp) / 60000;
-        if (durationMinutes < minHoldMinutes) {
-            return false;
-        }
+        const isOOR = position.activeBinId !== undefined && position.minBinId !== undefined && position.maxBinId !== undefined &&
+                      (position.activeBinId < position.minBinId || position.activeBinId > position.maxBinId);
 
-        const rsiConditionMet = currentRsi > rsiConf.upperLimit;
-        const priceAboveBbUpper = currentClose > currentBbUpper;
-        const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
-        
-        if (rsiConditionMet && priceAboveBbUpper) {
-            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND Close > BB Upper`);
-            return true;
-        }
-        
-        if (rsiConditionMet && macdFirstGreenHist) {
-            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND MACD First Green Histogram`);
-            return true;
+        if (isOOR) {
+            let binsOOR = 0;
+            if (position.activeBinId < position.minBinId) binsOOR = position.minBinId - position.activeBinId;
+            else if (position.activeBinId > position.maxBinId) binsOOR = position.activeBinId - position.maxBinId;
+            
+            console.log(`[OOR] ${position.tokenSymbol} is currently OOR by ${binsOOR} bins.`);
+            
+            const maxOorDistance = exitConf.maxOorDistance !== undefined ? exitConf.maxOorDistance : 10;
+            if (binsOOR > maxOorDistance) {
+                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: OOR Distance (${binsOOR} bins) > ${maxOorDistance} bins`);
+                return { shouldExit: true, reason: `OOR Distance (${binsOOR} bins) > ${maxOorDistance} bins` };
+            }
+            
+            if (position.oorTimestamp) {
+                const maxOorMinutes = exitConf.maxOorMinutes !== undefined ? exitConf.maxOorMinutes : 15;
+                const oorDurationMinutes = (Date.now() - position.oorTimestamp) / 60000;
+                if (oorDurationMinutes >= maxOorMinutes) {
+                    console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: OOR Timeout (${oorDurationMinutes.toFixed(1)}m >= ${maxOorMinutes}m)`);
+                    return { shouldExit: true, reason: `OOR Timeout (${oorDurationMinutes.toFixed(1)}m >= ${maxOorMinutes}m)` };
+                }
+            }
+            
+            // Ignore normal indicators while OOR
+            return { shouldExit: false };
+        } else {
+            // IN RANGE
+            
+            // Cooldown check for indicator exits
+            const durationMinutes = (Date.now() - position.timestamp) / 60000;
+            if (durationMinutes < minHoldMinutes) {
+                return { shouldExit: false };
+            }
+
+            const rsiConditionMet = currentRsi > rsiConf.upperLimit;
+            const priceAboveBbUpper = currentClose > currentBbUpper;
+            const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
+            
+            if (rsiConditionMet && priceAboveBbUpper) {
+                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND Close > BB Upper`);
+                return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan Harga > BB Upper` };
+            }
+            
+            if (rsiConditionMet && macdFirstGreenHist) {
+                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND MACD First Green Histogram`);
+                return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan trigger MACD positif` };
+            }
         }
         
     } catch (e) {
         console.error(`Error checking exit conditions for ${position.tokenSymbol}:`, e.message);
     }
     
-    return false;
+    return { shouldExit: false };
 }
 
 async function monitoringLoop(connection, walletKeypair) {
@@ -154,17 +185,56 @@ async function monitoringLoop(connection, walletKeypair) {
     const activePositions = readState();
     if (activePositions.length === 0) return;
     
-    if (closeMode === "manual") {
-        return;
-    }
-    
+    // Global closeMode is now just a fallback if needed, but per-position closeMode is checked below.
     console.log(`[Monitor] Checking ${activePositions.length} active positions...`);
     
-    for (const pos of activePositions) {
-        const shouldExit = await evaluateExitCondition(pos);
-        if (shouldExit) {
-            console.log(`[Monitor] Exit condition met for position ${pos.positionPubKey}.`);
-            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${pos.tokenSymbol}\nReason: Exit Condition Met`);
+    const poolActiveBins = {};
+    const { updatePosition } = require('./state.cjs');
+    let DLMM;
+    try {
+        DLMM = require('@meteora-ag/dlmm').default || require('@meteora-ag/dlmm');
+    } catch(e) {}
+    
+    for (let pos of activePositions) {
+        const posCloseMode = pos.closeMode || "auto";
+        if (posCloseMode === "manual") continue;
+        
+        if (DLMM) {
+            if (!poolActiveBins[pos.poolAddress]) {
+                try {
+                    const dlmmPool = await DLMM.create(connection, new PublicKey(pos.poolAddress));
+                    const activeBin = await dlmmPool.getActiveBin();
+                    poolActiveBins[pos.poolAddress] = activeBin.binId;
+                } catch(e) {}
+            }
+            pos.activeBinId = poolActiveBins[pos.poolAddress];
+            
+            if (pos.minBinId === undefined || pos.maxBinId === undefined) {
+                try {
+                    const dlmmPool = await DLMM.create(connection, new PublicKey(pos.poolAddress));
+                    const posAccount = await dlmmPool.program.account.positionV2.fetch(new PublicKey(pos.positionPubKey));
+                    pos.minBinId = posAccount.lowerBinId;
+                    pos.maxBinId = posAccount.upperBinId;
+                    updatePosition(pos.positionPubKey, { minBinId: pos.minBinId, maxBinId: pos.maxBinId });
+                } catch(e) { console.error(`[Monitor] Error fetching posAccount for bounds:`, e.message); }
+            }
+            
+            if (pos.activeBinId !== undefined && pos.minBinId !== undefined && pos.maxBinId !== undefined) {
+                const isOOR = pos.activeBinId < pos.minBinId || pos.activeBinId > pos.maxBinId;
+                if (isOOR && !pos.oorTimestamp) {
+                    pos.oorTimestamp = Date.now();
+                    updatePosition(pos.positionPubKey, { oorTimestamp: pos.oorTimestamp });
+                } else if (!isOOR && pos.oorTimestamp) {
+                    pos.oorTimestamp = null;
+                    updatePosition(pos.positionPubKey, { oorTimestamp: null });
+                }
+            }
+        }
+        
+        const exitData = await evaluateExitCondition(pos);
+        if (exitData.shouldExit) {
+            console.log(`[Monitor] Exit condition met for position ${pos.positionPubKey}. Reason: ${exitData.reason}`);
+            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${pos.tokenSymbol}\nReason: ${exitData.reason}`);
             
             try {
                 // 1. Remove Liquidity
@@ -190,7 +260,7 @@ async function monitoringLoop(connection, walletKeypair) {
                 
                 logTrade('EXIT', {
                     ...pos,
-                    reason: "Exit Condition Met",
+                    reason: exitData.reason,
                     reclaimedSol
                 });
             } catch (e) {
@@ -316,13 +386,17 @@ async function processCandidates(autoEntry, maxPositions, botConfig, connection,
                         openedBy: "auto",
                         investedSol: solToDeploy,
                         entryBinPrice: result.activeBinPrice,
-                        entryPriceUsd: entryPriceUsd
+                        entryPriceUsd: entryPriceUsd,
+                        minBinId: result.minBinId,
+                        maxBinId: result.maxBinId,
+                        entryReason: token.ai_reason || "Memenuhi syarat fundamental & Supertrend hijau",
+                        closeMode: "auto"
                     };
                     
                     addPosition(newPos);
                     logTrade('ENTRY', newPos);
                     
-                    sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\``);
+                    sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\`\n💡 *Reason:* ${newPos.entryReason}`);
                     
                 } catch (e) {
                     console.error(`Error processing ${token.symbol}:`, e.message);

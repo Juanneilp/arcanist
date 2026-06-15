@@ -22,14 +22,16 @@ if (token && token !== 'your_telegram_bot_token') {
     bot.help((ctx) => {
         const helpMsg = `🤖 Arcanist Bot Commands 🤖\n\n` +
                         `/positions - List active positions\n` +
-                        `/toggle_auto - Toggle Auto Entry/Close Mode\n` +
+                        `/history - View recent trade history\n` +
+                        `/toggle_close <num> - Toggle close mode per posisi\n` +
+                        `/toggle_auto - Toggle Global Auto Entry/Close Mode\n` +
                         `/chat [message] - Chat with Hermes AI Analyst`;
         ctx.reply(helpMsg);
     });
     bot.start((ctx) => ctx.reply("Welcome to Arcanist Bot! Type /help to see available commands."));
 
     // Command: /positions
-    bot.command('positions', async (ctx) => {
+    async function sendPositionsCommand(ctx) {
         try {
             const { readState, removePosition } = require('./state.cjs');
             const { fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
@@ -57,10 +59,6 @@ if (token && token !== 'your_telegram_bot_token') {
                     meteoraDetails = await fetchMeteoraPositionDetails(walletAddress);
                 } catch(e) {}
             }
-
-            // Removed aggressive state mutation here. 
-            // The bot loop should be the only one managing the lifecycle and auto-deleting closed positions.
-            // meteoraDetails will simply be used for augmenting the UI if the position data is found.
 
             const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
             let currentMaxPositions = 1;
@@ -95,14 +93,18 @@ if (token && token !== 'your_telegram_bot_token') {
                             const pnlSign = details.pnlUsd >= 0 ? "+" : "";
                             const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
                             const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                            const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                             
                             msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
                             msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
                             msg += `   ${rangeStatus}\n`;
+                            if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                         } else {
+                            const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                             msg += `   Invested: ${investedStr} SOL\n`;
-                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
+                            if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                         }
                         msg += `\n`;
                         index++;
@@ -121,14 +123,18 @@ if (token && token !== 'your_telegram_bot_token') {
                             const pnlSign = details.pnlUsd >= 0 ? "+" : "";
                             const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
                             const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                            const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                             
                             msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
                             msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
                             msg += `   ${rangeStatus}\n`;
+                            if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                         } else {
+                            const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                             msg += `   Invested: ${investedStr} SOL\n`;
-                            msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                            msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
+                            if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                         }
                         msg += `\n`;
                         index++;
@@ -141,7 +147,10 @@ if (token && token !== 'your_telegram_bot_token') {
         } catch (e) {
             ctx.reply("❌ Failed to read positions: " + e.message);
         }
-    });
+    }
+
+    // Command: /positions
+    bot.command('positions', sendPositionsCommand);
 
     // Helper to setup solana connections
     function setupSolanaContext() {
@@ -200,7 +209,13 @@ if (token && token !== 'your_telegram_bot_token') {
             }
             
             const bestPool = pools[0];
-            ctx.reply(`✅ Found Pool: \`${bestPool.poolAddress}\`\n⏳ Executing \`addLiquidity\` (${investAmountSol} SOL) in ${botMode.toUpperCase()} mode...`, { parse_mode: 'Markdown' });
+            let poolInfo = `✅ *Pool Found!*\n`;
+            poolInfo += `• *Name*: ${bestPool.name || 'Unknown'}\n`;
+            poolInfo += `• *Address*: \`${bestPool.poolAddress}\`\n`;
+            if (bestPool.bin_step) poolInfo += `• *Bin Step*: ${bestPool.bin_step}\n`;
+            if (bestPool.liquidity) poolInfo += `• *Liquidity*: $${Number(bestPool.liquidity).toFixed(2)}\n`;
+            poolInfo += `\n⏳ Executing \`addLiquidity\` (${investAmountSol} SOL) in ${botMode.toUpperCase()} mode...`;
+            ctx.reply(poolInfo, { parse_mode: 'Markdown' });
             
             const solLamports = Math.floor(investAmountSol * 1e9);
             const solMint = 'So11111111111111111111111111111111111111112';
@@ -218,15 +233,38 @@ if (token && token !== 'your_telegram_bot_token') {
             );
             
             if (positionPubKeyStr) {
+                const posPubKey = typeof positionPubKeyStr === 'string' ? positionPubKeyStr : (positionPubKeyStr.positionPubKey || positionPubKeyStr.status || "Unknown");
                 addPosition({
                     tokenMint: tokenMint,
-                    tokenSymbol: "MANUAL_ENTRY",
+                    tokenSymbol: bestPool.symbol_x && bestPool.symbol_y ? `${bestPool.symbol_x}-${bestPool.symbol_y}` : "MANUAL_ENTRY",
                     poolAddress: bestPool.poolAddress,
-                    positionPubKey: typeof positionPubKeyStr === 'string' ? positionPubKeyStr : positionPubKeyStr.status || "Unknown",
+                    positionPubKey: posPubKey,
                     investedSol: investAmountSol,
-                    openedBy: 'manual'
+                    openedBy: 'manual',
+                    entryReason: "Manual open from Telegram",
+                    closeMode: "auto"
                 });
-                ctx.reply(`🎉 *Position Opened!*\nStatus/Position: \`${typeof positionPubKeyStr === 'string' ? positionPubKeyStr : positionPubKeyStr.status}\``, { parse_mode: 'Markdown' });
+                
+                const { logTrade } = require('./state.cjs');
+                logTrade('ENTRY', {
+                    tokenMint,
+                    tokenSymbol: bestPool.symbol_x && bestPool.symbol_y ? `${bestPool.symbol_x}-${bestPool.symbol_y}` : "MANUAL_ENTRY",
+                    poolAddress: bestPool.poolAddress,
+                    positionPubKey: posPubKey,
+                    investedSol: investAmountSol,
+                    entryReason: "Manual open from Telegram"
+                });
+                
+                let successMsg = `🎉 *Position Opened!*\n`;
+                successMsg += `• *Token*: ${tokenMint}\n`;
+                successMsg += `• *Invested*: ${investAmountSol} SOL\n`;
+                successMsg += `• *Strategy Type*: ${strategyType}\n`;
+                successMsg += `• *Range*: ${minRange}% to ${maxRange}%\n`;
+                successMsg += `• *Position Key*: \`${posPubKey}\``;
+                await ctx.reply(successMsg, { parse_mode: 'Markdown' });
+                
+                // Panggil /positions otomatis
+                await sendPositionsCommand(ctx);
             } else {
                 ctx.reply(`❌ Failed to open position (no pubkey returned).`);
             }
@@ -271,6 +309,8 @@ if (token && token !== 'your_telegram_bot_token') {
             const txid = await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
             
             removePosition(pos.positionPubKey);
+            const { logTrade } = require('./state.cjs');
+            logTrade('EXIT', { ...pos, reason: "Manual close from Telegram" });
             const statusStr = typeof txid === 'string' ? txid : (txid && txid.status ? txid.status : 'success');
             ctx.reply(`✅ *Position Closed!*\nStatus/TxID: \`${statusStr}\``, { parse_mode: 'Markdown' });
         } catch (e) {
@@ -304,6 +344,8 @@ if (token && token !== 'your_telegram_bot_token') {
                 try {
                     await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
                     removePosition(pos.positionPubKey);
+                    const { logTrade } = require('./state.cjs');
+                    logTrade('EXIT', { ...pos, reason: "Manual close_all from Telegram" });
                 } catch(err) {
                     ctx.reply(`❌ Failed to close ${pos.tokenSymbol}: ${err.message}`);
                 }
@@ -311,6 +353,78 @@ if (token && token !== 'your_telegram_bot_token') {
             ctx.reply(`✅ Finished /close_all operation.`);
         } catch (e) {
             ctx.reply(`❌ Error during close_all: ${e.message}`);
+        }
+    });
+
+    // Command: /history
+    bot.command('history', async (ctx) => {
+        try {
+            const historyPath = path.join(__dirname, '..', 'trade_history.json');
+            if (!fs.existsSync(historyPath)) {
+                return ctx.reply("📜 No trade history found.");
+            }
+            const history = JSON.parse(fs.readFileSync(historyPath, 'utf-8'));
+            if (history.length === 0) {
+                return ctx.reply("📜 Trade history is empty.");
+            }
+            
+            const recent = history.slice(-10).reverse();
+            let msg = `📜 *Recent Trade History (Last ${recent.length})*\n─────────────────\n`;
+            
+            recent.forEach((trade, idx) => {
+                const isEntry = trade.action === 'ENTRY';
+                const emoji = isEntry ? '🟢' : '🔴';
+                const actionText = isEntry ? 'ENTRY' : 'EXIT';
+                msg += `${idx + 1}. ${emoji} *${actionText}* - ${trade.tokenSymbol || 'Unknown'}\n`;
+                if (trade.reason || trade.entryReason) {
+                    msg += `   💡 Reason: _${trade.reason || trade.entryReason}_\n`;
+                }
+                const date = new Date(trade.timestamp).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+                msg += `   ⏱ Time: ${date}\n`;
+                if (!isEntry && trade.reclaimedSol) {
+                    msg += `   💰 Reclaimed: ${trade.reclaimedSol.toFixed(4)} SOL\n`;
+                } else if (isEntry && trade.investedSol) {
+                    msg += `   💰 Invested: ${trade.investedSol.toFixed(4)} SOL\n`;
+                }
+                msg += `\n`;
+            });
+            
+            ctx.replyWithMarkdown(msg);
+        } catch (e) {
+            ctx.reply("❌ Error reading history: " + e.message);
+        }
+    });
+
+    // Command: /toggle_close <position_number>
+    bot.command('toggle_close', (ctx) => {
+        try {
+            const text = ctx.message.text.trim();
+            const parts = text.split(/\s+/);
+            if (parts.length < 2) {
+                return ctx.reply("❌ Invalid format. Use: /toggle_close <nomor_posisi>");
+            }
+            const index = parseInt(parts[1], 10) - 1;
+            
+            const { readState, updatePosition } = require('./state.cjs');
+            const currentActivePositions = readState();
+            
+            const aiPositions = currentActivePositions.filter(p => p.openedBy === "auto");
+            const manualPositions = currentActivePositions.filter(p => p.openedBy === "manual");
+            const combined = [...aiPositions, ...manualPositions];
+            
+            if (index < 0 || index >= combined.length) {
+                return ctx.reply(`❌ Position number ${index+1} not found. Use /positions to view list.`);
+            }
+            
+            const pos = combined[index];
+            const currentMode = pos.closeMode || 'auto';
+            const newMode = currentMode === 'auto' ? 'manual' : 'auto';
+            
+            updatePosition(pos.positionPubKey, { closeMode: newMode });
+            
+            ctx.reply(`✅ Close Mode for *${pos.tokenSymbol}* changed from *${currentMode}* to *${newMode}*.`, { parse_mode: 'Markdown' });
+        } catch (e) {
+            ctx.reply(`❌ Error toggling close mode: ${e.message}`);
         }
     });
 
@@ -365,10 +479,12 @@ if (token && token !== 'your_telegram_bot_token') {
         bot.telegram.setMyCommands([
             { command: 'help', description: 'Show available commands' },
             { command: 'positions', description: 'List active positions' },
+            { command: 'history', description: 'View trade history' },
+            { command: 'toggle_close', description: 'Toggle close mode per position' },
             { command: 'open', description: 'Open position (/open <mint> [sol])' },
             { command: 'close', description: 'Close position (/close <number>)' },
             { command: 'close_all', description: 'Close all positions' },
-            { command: 'toggle_auto', description: 'Toggle Auto Entry/Close Mode' },
+            { command: 'toggle_auto', description: 'Toggle Global Auto Entry/Close Mode' },
             { command: 'chat', description: 'Chat with Hermes AI Analyst' }
         ]).catch(e => console.error("Failed to set commands:", e.message));
     }).catch((e) => {
