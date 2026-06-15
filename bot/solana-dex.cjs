@@ -675,8 +675,16 @@ async function syncManualPositions(connection, walletKeypair) {
         const onChainPubkeys = [];
         const onChainDetails = {};
         
-        allPositionsMap.forEach((positions, poolAddress) => {
-            for (const p of positions) {
+        allPositionsMap.forEach((positionsInfo, poolAddress) => {
+            if (!positionsInfo.lbPairPositionsData) return;
+            for (const p of positionsInfo.lbPairPositionsData) {
+                const xAmount = Number(p.positionData.totalXAmount);
+                const yAmount = Number(p.positionData.totalYAmount);
+                
+                // If the position has 0 liquidity (empty), ignore it.
+                // This ensures empty ghost accounts aren't treated as active positions.
+                if (xAmount === 0 && yAmount === 0) continue;
+                
                 const pubKeyStr = p.publicKey.toBase58();
                 onChainPubkeys.push(pubKeyStr);
                 onChainDetails[pubKeyStr] = {
