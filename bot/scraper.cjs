@@ -211,6 +211,11 @@ async function runScraper() {
                 const token = fundamentalFilteredTokens[i];
                 process.stdout.write(`[${i+1}/${fundamentalFilteredTokens.length}] Checking chart for ${token.symbol}... `);
                 
+                // Add a 1.5 second delay between requests to prevent GMGN "Too Many Requests" (Rate Limit)
+                if (i > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+                
                 const klines = await fetchKlineData(token.address, timeframe);
                 if (!klines || klines.length === 0) {
                     console.log(`Failed to fetch K-Line data.`);
