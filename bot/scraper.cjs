@@ -193,12 +193,30 @@ async function runScraper() {
                 ageInHours = (Math.floor(Date.now() / 1000) - creationTimestamp) / 3600;
             }
 
+            const top10Percentage = (parseFloat(token.top_10_holder_rate) || 0) * 100;
+            const devHoldsPercentage = (parseFloat(token.dev_team_hold_rate) || 0) * 100;
+            const insiderPercentage = (parseFloat(token.rat_trader_amount_rate) || 0) * 100;
+            const phishingPercentage = (parseFloat(token.entrapment_ratio) || 0) * 100;
+            const bundlingPercentage = (parseFloat(token.bundler_rate) || 0) * 100;
+            const rugPercentage = (parseFloat(token.rug_ratio) || 0) * 100;
+            const isLiquidityBurnt = token.burn_status === "burn" || parseFloat(token.burn_ratio) >= 1;
+
+            let passAdvancedFilters = true;
+            if (localFilters.maxTop10Percentage !== undefined && top10Percentage > localFilters.maxTop10Percentage) passAdvancedFilters = false;
+            if (localFilters.maxDevHoldsPercentage !== undefined && devHoldsPercentage > localFilters.maxDevHoldsPercentage) passAdvancedFilters = false;
+            if (localFilters.maxInsiderPercentage !== undefined && insiderPercentage > localFilters.maxInsiderPercentage) passAdvancedFilters = false;
+            if (localFilters.maxPhishingPercentage !== undefined && phishingPercentage > localFilters.maxPhishingPercentage) passAdvancedFilters = false;
+            if (localFilters.maxBundlingPercentage !== undefined && bundlingPercentage > localFilters.maxBundlingPercentage) passAdvancedFilters = false;
+            if (localFilters.maxRugPercentage !== undefined && rugPercentage > localFilters.maxRugPercentage) passAdvancedFilters = false;
+            if (localFilters.requireLiquidityBurnt === true && !isLiquidityBurnt) passAdvancedFilters = false;
+
             return marketCap >= localFilters.minMarketCap && 
                    volume24h >= localFilters.minVolume24h &&
                    gasFee >= localFilters.minTotalFees &&
                    smartDegenCount >= localFilters.minSmartDegenCount &&
                    holderCount >= localFilters.minHolders &&
-                   ageInHours >= (localFilters.minTokenAgeHours || 0);
+                   ageInHours >= (localFilters.minTokenAgeHours || 0) &&
+                   passAdvancedFilters;
         });
 
         const finalTokens = [];
@@ -319,7 +337,7 @@ async function runScraper() {
                 if (t.is_new_ath) statsStr += `\n🚀 *STATUS: NEW ATH DETECTED*`;
                 tgMsg += `${statsStr}\n`;
                 
-                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k`;
+                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k & Advanced Security Filters`;
                 if (techFilters.supertrend?.enabled) reasonStr += `, Supertrend Hijau`;
                 if (techFilters.volumeTrend?.enabled) reasonStr += `, Vol Trend tidak Decelerating`;
                 tgMsg += `💡 *Reason:* _${reasonStr}_\n\n`;

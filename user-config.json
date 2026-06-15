@@ -18,7 +18,14 @@
     "minTotalFees": 50,
     "minSmartDegenCount": 5,
     "minHolders": 100,
-    "minTokenAgeHours": 6
+    "minTokenAgeHours": 6,
+    "maxTop10Percentage": 30,
+    "maxDevHoldsPercentage": 5,
+    "maxInsiderPercentage": 0,
+    "maxPhishingPercentage": 30,
+    "maxBundlingPercentage": 60,
+    "requireLiquidityBurnt": true,
+    "maxRugPercentage": 50
   },
   "technicalFilters": {
     "supertrend": {
@@ -52,7 +59,7 @@
     "checkIntervalSeconds": 30,
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
-    "maxActivePositions": 1,
+    "maxActivePositions": 2,
     "entryMode": "auto",
     "closeMode": "auto"
   },
