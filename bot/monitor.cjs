@@ -3,30 +3,7 @@ const path = require('path');
 const { PublicKey, Connection, Keypair } = require('@solana/web3.js');
 const util = require('util');
 const { spawn } = require('child_process');
-
-function spawnAsync(command, args, options) {
-    return new Promise((resolve, reject) => {
-        const child = spawn(command, args, options);
-        let stdout = '';
-        let stderr = '';
-        
-        child.stdout.on('data', (data) => stdout += data.toString());
-        child.stderr.on('data', (data) => stderr += data.toString());
-        
-        child.on('close', (code) => {
-            if (code === 0) {
-                resolve({ stdout, stderr });
-            } else {
-                const err = new Error(`Command failed with code ${code}`);
-                err.stdout = stdout;
-                err.stderr = stderr;
-                reject(err);
-            }
-        });
-        
-        child.on('error', (err) => reject(err));
-    });
-}
+const { spawnAsync } = require('./api-utils.cjs');
 
 const { calculateRSI, calculateMACD, calculateBollingerBands } = require('./indicators.cjs');
 const { readState, removePosition, logTrade, updatePosition } = require('./state.cjs');

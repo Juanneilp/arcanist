@@ -1,5 +1,30 @@
 const fetch = require('node-fetch'); // using native fetch, but we'll use global.fetch just in case
 const _fetch = typeof fetch !== 'undefined' ? fetch : global.fetch;
+const { spawn } = require('child_process');
+
+function spawnAsync(command, args, options) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, options);
+        let stdout = '';
+        let stderr = '';
+        
+        child.stdout.on('data', (data) => stdout += data.toString());
+        child.stderr.on('data', (data) => stderr += data.toString());
+        
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve({ stdout, stderr });
+            } else {
+                const err = new Error(`Command failed with code ${code}`);
+                err.stdout = stdout;
+                err.stderr = stderr;
+                reject(err);
+            }
+        });
+        
+        child.on('error', (err) => reject(err));
+    });
+}
 
 async function fetchWithRetry(url, options = {}, maxRetries = 3) {
     let attempt = 0;
@@ -48,5 +73,6 @@ async function rpcRetryWrapper(operation, maxRetries = 3) {
 
 module.exports = {
     fetchWithRetry,
-    rpcRetryWrapper
+    rpcRetryWrapper,
+    spawnAsync
 };

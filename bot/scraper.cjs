@@ -2,32 +2,9 @@ const { spawn } = require('child_process');
 const util = require('util');
 const fs = require('fs');
 const path = require('path');
+const { spawnAsync } = require('./api-utils.cjs');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-
-function spawnAsync(command, args, options) {
-    return new Promise((resolve, reject) => {
-        const child = spawn(command, args, options);
-        let stdout = '';
-        let stderr = '';
-        
-        child.stdout.on('data', (data) => stdout += data.toString());
-        child.stderr.on('data', (data) => stderr += data.toString());
-        
-        child.on('close', (code) => {
-            if (code === 0) {
-                resolve({ stdout, stderr });
-            } else {
-                const err = new Error(`Command failed with code ${code}`);
-                err.stdout = stdout;
-                err.stderr = stderr;
-                reject(err);
-            }
-        });
-        
-        child.on('error', (err) => reject(err));
-    });
-}
 
 
 // --- SUPERTREND LOGIC ---

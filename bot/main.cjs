@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
 const { Connection, Keypair, PublicKey } = require('@solana/web3.js');
 const bs58 = require('bs58').default || require('bs58');
 const { fetchMeteoraPools, addLiquidity, syncManualPositions, fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
@@ -70,7 +69,21 @@ async function runBot() {
 
     // Start Monitoring Loop (For Exit Conditions)
     const checkInterval = (userConfig.monitoringConfig?.checkIntervalSeconds || 30) * 1000;
-    setInterval(() => monitoringLoop(connection, walletKeypair), checkInterval);
+    let isMonitoring = false;
+    setInterval(async () => {
+        if (isMonitoring) {
+            console.log(`[Monitor] Previous loop still running. Skipping to prevent overlap.`);
+            return;
+        }
+        isMonitoring = true;
+        try {
+            await monitoringLoop(connection, walletKeypair);
+        } catch (e) {
+            console.error('[Monitor] Error in monitoring loop:', e);
+        } finally {
+            isMonitoring = false;
+        }
+    }, checkInterval);
     console.log(`Started Exit Monitoring Loop (Interval: ${checkInterval/1000}s)`);
 
     // --- Telegram Report Cron Job ---

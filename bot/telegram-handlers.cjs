@@ -173,6 +173,15 @@ async function openCommand(ctx) {
             return ctx.reply(`❌ **Insufficient Balance**\nYour wallet balance is ${solBalance.toFixed(4)} SOL.\nMinimum required to open position (minSolToOpen) is ${minSolToOpen} SOL.`, { parse_mode: 'Markdown' });
         }
 
+        const gasReserve = config.meteoraConfig?.gasReserve || 0.1;
+        const refundableReserve = config.meteoraConfig?.refundableReserve || 0.05;
+        const availableBalance = Math.max(0, solBalance - gasReserve - refundableReserve);
+        const solToDeploy = Math.min(investAmountSol, availableBalance);
+
+        if (solToDeploy <= 0) {
+            return ctx.reply(`❌ **Insufficient Balance for Reserves**\nYour wallet balance is ${solBalance.toFixed(4)} SOL.\nAfter deducting gas (${gasReserve}) and refundable (${refundableReserve}) reserves, available balance is too low.`, { parse_mode: 'Markdown' });
+        }
+
         const { fetchMeteoraPools, addLiquidity } = require('./solana-dex.cjs');
         const { addPosition, logTrade } = require('./state.cjs');
         
@@ -188,10 +197,10 @@ async function openCommand(ctx) {
         poolInfo += `• *Address*: \`${bestPool.poolAddress}\`\n`;
         if (bestPool.bin_step) poolInfo += `• *Bin Step*: ${bestPool.bin_step}\n`;
         if (bestPool.liquidity) poolInfo += `• *Liquidity*: $${Number(bestPool.liquidity).toFixed(2)}\n`;
-        poolInfo += `\n⏳ Executing \`addLiquidity\` (${investAmountSol} SOL) in ${botMode.toUpperCase()} mode...`;
+        poolInfo += `\n⏳ Executing \`addLiquidity\` (${solToDeploy.toFixed(4)} SOL) in ${botMode.toUpperCase()} mode...`;
         ctx.reply(poolInfo, { parse_mode: 'Markdown' });
         
-        const solLamports = Math.floor(investAmountSol * 1e9);
+        const solLamports = Math.floor(solToDeploy * 1e9);
         const solMint = 'So11111111111111111111111111111111111111112';
 
         const positionPubKeyStr = await addLiquidity(
@@ -214,7 +223,7 @@ async function openCommand(ctx) {
                 tokenSymbol: tokenSymbol,
                 poolAddress: bestPool.poolAddress,
                 positionPubKey: posPubKey,
-                investedSol: investAmountSol,
+                investedSol: solToDeploy,
                 openedBy: 'manual',
                 entryReason: "Manual open from Telegram",
                 closeMode: "auto"
@@ -225,13 +234,13 @@ async function openCommand(ctx) {
                 tokenSymbol: tokenSymbol,
                 poolAddress: bestPool.poolAddress,
                 positionPubKey: posPubKey,
-                investedSol: investAmountSol,
+                investedSol: solToDeploy,
                 entryReason: "Manual open from Telegram"
             });
             
             let successMsg = `🎉 *Position Opened!*\n`;
             successMsg += `• *Token*: ${tokenMint}\n`;
-            successMsg += `• *Invested*: ${investAmountSol} SOL\n`;
+            successMsg += `• *Invested*: ${solToDeploy.toFixed(4)} SOL\n`;
             successMsg += `• *Strategy Type*: ${strategyType}\n`;
             successMsg += `• *Range*: ${minRange}% to ${maxRange}%\n`;
             successMsg += `• *Position Key*: \`${posPubKey}\``;

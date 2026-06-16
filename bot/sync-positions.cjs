@@ -1,6 +1,6 @@
 const { PublicKey } = require('@solana/web3.js');
 const DLMM = require('@meteora-ag/dlmm');
-const { readState, saveState } = require('./state.cjs');
+const { readState, saveState, addPosition } = require('./state.cjs');
 const { fetchWithRetry } = require('./api-utils.cjs');
 const jupiter = require('./jupiter.cjs');
 
@@ -132,7 +132,7 @@ async function syncManualPositions(connection, walletKeypair) {
                     timestamp: Date.now()
                 };
                 
-                state.push(newPos);
+                addPosition(newPos);
                 syncedPositions.push(newPos);
                 addedCount++;
                 console.log(`[Sync] Injected manual position: ${positionPubKeyStr} for token ${tokenSymbol}`);
@@ -142,7 +142,6 @@ async function syncManualPositions(connection, walletKeypair) {
         }
         
         if (addedCount > 0) {
-            saveState(state);
             console.log(`[Sync] Added ${addedCount} manual positions to active state.`);
         }
         return syncedPositions;

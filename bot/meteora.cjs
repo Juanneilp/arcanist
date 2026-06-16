@@ -126,12 +126,12 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                 );
                 
                 const createTxArray = Array.isArray(createTxs) ? createTxs : [createTxs];
-                for (let i = 0; i < createTxArray.length; i++) {
-                    const txid = await rpcRetryWrapper(async () => {
+                
+                if (createTxArray.length > 0) {
+                    const txid0 = await rpcRetryWrapper(async () => {
                         const latestBlockHash = await connection.getLatestBlockhash();
-                        createTxArray[i].recentBlockhash = latestBlockHash.blockhash;
-                        const signers = i === 0 ? [walletKeypair, newPositionKeypair] : [walletKeypair];
-                        const sig = await connection.sendTransaction(createTxArray[i], signers);
+                        createTxArray[0].recentBlockhash = latestBlockHash.blockhash;
+                        const sig = await connection.sendTransaction(createTxArray[0], [walletKeypair, newPositionKeypair]);
                         await connection.confirmTransaction({
                             signature: sig,
                             blockhash: latestBlockHash.blockhash,
@@ -139,7 +139,32 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                         }, "confirmed");
                         return sig;
                     });
-                    console.log(`[LIVE] Create TX ${i+1}/${createTxArray.length} Confirmed. TXID: ${txid}`);
+                    console.log(`[LIVE] Create Position TX 1/${createTxArray.length} Confirmed. TXID: ${txid0}`);
+                }
+                
+                if (createTxArray.length > 1) {
+                    console.log(`[LIVE] Sending remaining ${createTxArray.length - 1} Create Bin Array TXs in parallel...`);
+                    const remainingCreatePromises = createTxArray.slice(1).map((tx, idx) => rpcRetryWrapper(async () => {
+                        const latestBlockHash = await connection.getLatestBlockhash();
+                        tx.recentBlockhash = latestBlockHash.blockhash;
+                        const sig = await connection.sendTransaction(tx, [walletKeypair]);
+                        await connection.confirmTransaction({
+                            signature: sig,
+                            blockhash: latestBlockHash.blockhash,
+                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                        }, "confirmed");
+                        return sig;
+                    }));
+                    
+                    const createResults = await Promise.allSettled(remainingCreatePromises);
+                    createResults.forEach((res, idx) => {
+                        if (res.status === 'fulfilled') {
+                            console.log(`[LIVE] Create Bin Array TX ${idx+2}/${createTxArray.length} Confirmed. TXID: ${res.value}`);
+                        } else {
+                            console.error(`[LIVE] Create Bin Array TX ${idx+2}/${createTxArray.length} Failed:`, res.reason);
+                            throw res.reason;
+                        }
+                    });
                 }
                 
                 console.log(`[LIVE] Sending Add Liquidity (Chunkable) transaction(s)...`);
@@ -157,20 +182,28 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                 });
                 
                 const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
-                for (let i = 0; i < addTxArray.length; i++) {
-                    const txid = await rpcRetryWrapper(async () => {
-                        const latestBlockHash = await connection.getLatestBlockhash();
-                        addTxArray[i].recentBlockhash = latestBlockHash.blockhash;
-                        const sig = await connection.sendTransaction(addTxArray[i], [walletKeypair]);
-                        await connection.confirmTransaction({
-                            signature: sig,
-                            blockhash: latestBlockHash.blockhash,
-                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
-                        }, "confirmed");
-                        return sig;
-                    });
-                    console.log(`[LIVE] Add Liquidity TX ${i+1}/${addTxArray.length} Confirmed. TXID: ${txid}`);
-                }
+                console.log(`[LIVE] Sending ${addTxArray.length} Add Liquidity TXs in parallel...`);
+                const addPromises = addTxArray.map((tx, idx) => rpcRetryWrapper(async () => {
+                    const latestBlockHash = await connection.getLatestBlockhash();
+                    tx.recentBlockhash = latestBlockHash.blockhash;
+                    const sig = await connection.sendTransaction(tx, [walletKeypair]);
+                    await connection.confirmTransaction({
+                        signature: sig,
+                        blockhash: latestBlockHash.blockhash,
+                        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                    }, "confirmed");
+                    return sig;
+                }));
+                
+                const addResults = await Promise.allSettled(addPromises);
+                addResults.forEach((res, idx) => {
+                    if (res.status === 'fulfilled') {
+                        console.log(`[LIVE] Add Liquidity TX ${idx+1}/${addTxArray.length} Confirmed. TXID: ${res.value}`);
+                    } else {
+                        console.error(`[LIVE] Add Liquidity TX ${idx+1}/${addTxArray.length} Failed:`, res.reason);
+                        throw res.reason;
+                    }
+                });
             } else {
                 const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
                     positionPubKey: newPositionKeypair.publicKey, 
