@@ -248,7 +248,7 @@ async function monitoringLoop(connection, walletKeypair) {
                         finalPnlSol = finalPnlUsd / solPrice;
                     }
                     
-                    const pnlSign = finalPnlUsd >= 0 ? "+" : "";
+                    const pnlSign = finalPnlUsd >= 0 ? "+" : "-";
                     const configPath = path.join(__dirname, '..', 'user-config.json');
                     let pnlCurrency = 'USD';
                     try {
@@ -257,9 +257,9 @@ async function monitoringLoop(connection, walletKeypair) {
                     } catch(e) {}
                     
                     if (pnlCurrency === 'SOL' && finalPnlSol !== undefined) {
-                        pnlMessageStr = `\n💰 *Est PnL:* ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                        pnlMessageStr = `\n💰 *Est PnL:* ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${Math.abs(finalPnlPct).toFixed(2)}%)`;
                     } else {
-                        pnlMessageStr = `\n💰 *Est PnL:* ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                        pnlMessageStr = `\n💰 *Est PnL:* ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${Math.abs(finalPnlPct).toFixed(2)}%)`;
                     }
                 }
             } catch(e) {

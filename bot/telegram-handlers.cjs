@@ -96,16 +96,16 @@ async function sendPositionsCommand(ctx) {
                     
                     msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
                     if (details) {
-                        const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                        const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
                         const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         
                         if (pnlCurrency === 'SOL' && solPriceUsd > 0) {
                             const pnlSol = Math.abs(details.pnlUsd) / solPriceUsd;
-                            msg += `   ${pnlColor} PnL: ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         } else {
-                            msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
@@ -131,16 +131,16 @@ async function sendPositionsCommand(ctx) {
                     
                     msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
                     if (details) {
-                        const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                        const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
                         const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         
                         if (pnlCurrency === 'SOL' && solPriceUsd > 0) {
                             const pnlSol = Math.abs(details.pnlUsd) / solPriceUsd;
-                            msg += `   ${pnlColor} PnL: ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         } else {
-                            msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
@@ -334,7 +334,7 @@ async function closeCommand(ctx) {
         
         let pnlMsg = "";
         if (finalPnlUsd !== undefined) {
-            const pnlSign = finalPnlUsd >= 0 ? "+" : "";
+            const pnlSign = finalPnlUsd >= 0 ? "+" : "-";
             const configPath = path.join(__dirname, '..', 'user-config.json');
             let pnlCurrency = 'USD';
             try {
@@ -342,9 +342,9 @@ async function closeCommand(ctx) {
                 pnlCurrency = config.monitoringConfig?.pnlCurrency || 'USD';
             } catch(e) {}
             if (pnlCurrency === 'SOL' && finalPnlSol !== undefined) {
-                pnlMsg = `\n💰 *Est PnL:* ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                pnlMsg = `\n💰 *Est PnL:* ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${Math.abs(finalPnlPct).toFixed(2)}%)`;
             } else {
-                pnlMsg = `\n💰 *Est PnL:* ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                pnlMsg = `\n💰 *Est PnL:* ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${Math.abs(finalPnlPct).toFixed(2)}%)`;
             }
         }
         
@@ -433,7 +433,7 @@ async function confirmCloseAllAction(ctx) {
                 
                 let pnlMsg = "";
                 if (finalPnlUsd !== undefined) {
-                    const pnlSign = finalPnlUsd >= 0 ? "+" : "";
+                    const pnlSign = finalPnlUsd >= 0 ? "+" : "-";
                     const configPath = path.join(__dirname, '..', 'user-config.json');
                     let pnlCurrency = 'USD';
                     try {
@@ -441,9 +441,9 @@ async function confirmCloseAllAction(ctx) {
                         pnlCurrency = config.monitoringConfig?.pnlCurrency || 'USD';
                     } catch(e) {}
                     if (pnlCurrency === 'SOL' && finalPnlSol !== undefined) {
-                        pnlMsg = ` - PnL: ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                        pnlMsg = ` - PnL: ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${Math.abs(finalPnlPct).toFixed(2)}%)`;
                     } else {
-                        pnlMsg = ` - PnL: ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                        pnlMsg = ` - PnL: ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${Math.abs(finalPnlPct).toFixed(2)}%)`;
                     }
                 }
                 ctx.reply(`✅ Closed ${pos.tokenSymbol}${pnlMsg}`);
@@ -499,14 +499,14 @@ async function historyCommand(ctx) {
             if (!isEntry) {
                 if (trade.reclaimedSol) msg += `   💰 Reclaimed Dust: ${trade.reclaimedSol.toFixed(4)} SOL\n`;
                 if (trade.pnlUsd !== undefined && trade.pnlPct !== undefined) {
-                    const pnlSign = trade.pnlUsd >= 0 ? "+" : "";
+                    const pnlSign = trade.pnlUsd >= 0 ? "+" : "-";
                     const pnlColor = trade.pnlUsd >= 0 ? "🟢" : "🔴";
                     let pnlDisplay = `${Math.abs(trade.pnlUsd).toFixed(2)}`;
                     
                     if (pnlCurrency === 'SOL' && trade.pnlSol !== undefined) {
                         pnlDisplay = `${Math.abs(trade.pnlSol).toFixed(4)} SOL`;
                     }
-                    msg += `   ${pnlColor} PnL: ${pnlSign}${pnlDisplay} (${pnlSign}${trade.pnlPct.toFixed(2)}%)\n`;
+                    msg += `   ${pnlColor} PnL: ${pnlSign}${pnlDisplay} (${pnlSign}${Math.abs(trade.pnlPct).toFixed(2)}%)\n`;
                 }
             } else if (isEntry && trade.investedSol) {
                 msg += `   💰 Invested: ${trade.investedSol.toFixed(4)} SOL\n`;

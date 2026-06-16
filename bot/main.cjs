@@ -166,11 +166,11 @@ async function runBot() {
                     
                     msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
                     if (details) {
-                        const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                        const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
                         const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
                         
-                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${ageMinutes}m\n`;
                         msg += `   ${rangeStatus}\n`;
@@ -192,11 +192,11 @@ async function runBot() {
                     
                     msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
                     if (details) {
-                        const pnlSign = details.pnlUsd >= 0 ? "+" : "";
+                        const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
                         const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
                         
-                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${ageMinutes}m\n`;
                         msg += `   ${rangeStatus}\n`;
