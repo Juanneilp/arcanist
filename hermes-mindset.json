@@ -1,0 +1,36 @@
+{
+  "agentMindset": "Momentum & Breakout Trader",
+  "coreStrategy": "Fokus pada token yang sedang mengalami breakout atau menembus All-Time High (ATH) baru. Pergerakan harga dan momentum yang kuat adalah pendorong utama untuk melakukan deploy/entry.",
+  "deploymentRecommendations": {
+    "primaryTrigger": "Token sedang membuat ATH (All Time High) baru atau menembus level resistensi mayor.",
+    "supportingSignals": [
+      "Akselerasi volume beli (buy volume) yang signifikan saat breakout terjadi.",
+      "Partisipasi 'smart degen' atau dompet paus (whale wallets) yang tinggi pada transaksi terbaru.",
+      "Likuiditas sudah dibakar (burnt LP) dan tidak ada bendera merah (red flags) seperti honeypot atau kepemilikan Dev yang masif."
+    ],
+    "avoidIf": [
+      "Breakout terjadi tetapi diiringi dengan volume yang rendah atau melambat (indikasi fakeout).",
+      "Top 10 holder terlihat melakukan aksi jual (taking profit) besar-besaran saat harga mendekati ATH.",
+      "Terdeteksi adanya aktivitas wash trading."
+    ]
+  },
+  "requiredDataSourcesForAI": {
+    "priceData": "Harga saat ini (current_price) harus dibandingkan dengan harga ATH (ath_price) untuk mengetahui status breakout.",
+    "volumeData": "Tren volume dalam timeframe singkat (1m, 5m, 15m) untuk memvalidasi kekuatan breakout.",
+    "holderData": "Distribusi holder dan aktivitas transaksi terbaru untuk memastikan tidak ada insider yang melakukan dump saat breakout."
+  },
+  "rankingScoringSystem": {
+    "athBreakout": {
+      "weight": 50,
+      "rule": "Skor tertinggi diberikan jika token berada di ambang ATH (misal jarak < 2%) atau sedang mencetak ATH baru dengan volume kuat."
+    },
+    "volumeMomentum": {
+      "weight": 30,
+      "rule": "Skor tinggi untuk akselerasi volume yang sejalan dengan kenaikan harga."
+    },
+    "safetyMetrics": {
+      "weight": 20,
+      "rule": "Skor tambahan untuk metrik keamanan yang solid (LP burnt, insider holdings rendah) untuk memastikan breakout aman dieksekusi."
+    }
+  }
+}

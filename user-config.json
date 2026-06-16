@@ -21,7 +21,7 @@
     "minTokenAgeHours": 6,
     "maxTop10Percentage": 30,
     "maxDevHoldsPercentage": 5,
-    "maxInsiderPercentage": 0,
+    "maxInsiderPercentage": 0.1,
     "maxPhishingPercentage": 30,
     "maxBundlingPercentage": 60,
     "requireLiquidityBurnt": true,

@@ -13,6 +13,7 @@ const { sendMessage } = require('./telegram.cjs');
 const { calculateRSI, calculateMACD, calculateBollingerBands } = require('./indicators.cjs');
 const cron = require('node-cron');
 const { runScraper } = require('./scraper.cjs');
+const { processCandidates } = require('./engine.cjs');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -287,148 +288,7 @@ async function monitoringLoop(connection, walletKeypair) {
     }
 }
 
-async function processCandidates(autoEntry, maxPositions, botConfig, connection, walletKeypair, botMode) {
-    if (!autoEntry) {
-        console.log("Auto Entry is disabled. Will run AI screening but skip Meteora deployment.");
-    }
 
-    const candidatesPath = path.join(__dirname, '..', 'candidates.json');
-    if (fs.existsSync(candidatesPath)) {
-        let candidates = JSON.parse(fs.readFileSync(candidatesPath, 'utf-8'));
-        console.log(`Loaded ${candidates.length} candidate(s) from JSON.`);
-        
-        const activePositions = readState();
-        
-        // Filter out candidates that are already in activePositions to prevent duplicate token entries
-        const activeMints = activePositions.map(p => p.tokenMint);
-        candidates = candidates.filter(c => !activeMints.includes(c.address));
-        
-        // If autoEntry is disabled, we still want to show the top 3 (or maxPositions) candidates.
-        const availableSlots = autoEntry ? (maxPositions - activePositions.length) : maxPositions;
-        
-        if (availableSlots > 0 && candidates.length > 0) {
-            sendMessage(`🔍 Found ${candidates.length} candidates. Requesting Hermes AI screening...`);
-            // AI Screening
-            candidates = await screenCandidates(candidates, availableSlots);
-            
-            let aiMsg = `🤖 *Hermes AI Selection (Top ${candidates.length})* 🤖\n━━━━━━━━━━━━━━━━━━\n`;
-            candidates.forEach((t, index) => {
-                const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎';
-                const cleanName = t.name ? t.name.replace(/[_*`\[\]]/g, '') : 'Unknown';
-                const cleanReason = t.ai_reason ? t.ai_reason.replace(/[_*`\[\]]/g, '') : '';
-                aiMsg += `${rankEmoji} *${cleanName}* (${t.symbol})\n`;
-                aiMsg += `🔗 \`${t.address}\`\n`;
-                aiMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
-                aiMsg += `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count}\n`;
-                if (cleanReason) aiMsg += `💡 *Reason:* _${cleanReason}_\n`;
-                aiMsg += `━━━━━━━━━━━━━━━━━━\n`;
-            });
-            sendMessage(aiMsg);
-            
-            if (!autoEntry) {
-                console.log("Auto Entry is disabled. Skipping Meteora deployment loop.");
-                return;
-            }
-            
-            for (const token of candidates) {
-                console.log(`\n==================================================`);
-                console.log(`Processing Token: ${token.symbol} (${token.address})`);
-                
-                let solToDeploy = 0;
-                try {
-                    let walletBalanceUi = 0;
-                    if (botMode === 'dry_run' && (!process.env.WALLET_PRIVATE_KEY || process.env.WALLET_PRIVATE_KEY === 'your_wallet_private_key_base58')) {
-                        walletBalanceUi = 5.0; 
-                    } else {
-                        walletBalanceUi = (await connection.getBalance(walletKeypair.publicKey)) / 1e9;
-                    }
-
-                    const solPerPosition = botConfig.solPerPosition || 0.15;
-                    const minSolToOpen = botConfig.minSolToOpen || 0.21;
-                    const gasReserve = botConfig.gasReserve || 0.1;
-                    const refundableReserve = botConfig.refundableReserve || 0.05;
-
-                    if (walletBalanceUi < minSolToOpen) {
-                        console.log(`[Skip] Wallet balance (${walletBalanceUi.toFixed(4)} SOL) is below minSolToOpen (${minSolToOpen} SOL).`);
-                        continue;
-                    }
-
-                    const availableBalance = Math.max(0, walletBalanceUi - gasReserve - refundableReserve);
-                    solToDeploy = Math.min(availableBalance, solPerPosition);
-
-                    if (solToDeploy <= 0) {
-                        console.log(`[Skip] Insufficient balance for deployment after gas and refundable reserves.`);
-                        continue;
-                    }
-
-                    const allowedQuoteTokens = botConfig.allowedQuoteTokens || ['SOL'];
-                    const pools = await fetchMeteoraPools(token.address, allowedQuoteTokens);
-            
-
-                    const filteredPools = pools.filter(p => p.bin_step >= botConfig.minBinStep && p.bin_step <= botConfig.maxBinStep);
-                    
-                    if (filteredPools.length === 0) {
-                        console.warn(`No matching Meteora pool found for ${token.symbol}/SOL with bin steps between ${botConfig.minBinStep} and ${botConfig.maxBinStep}.`);
-                        continue;
-                    }
-                    
-                    const targetPool = filteredPools.sort((a, b) => b.liquidity - a.liquidity)[0];
-                    const solLamportsToLP = Math.floor(solToDeploy * 1e9);
-                    
-                    console.log(`[${botMode.toUpperCase()}] Adding Single-Sided SOL Liquidity to ${targetPool.address} (Bin Step: ${targetPool.bin_step})...`);
-                    const result = await addLiquidity(connection, walletKeypair, targetPool.address, WSOL_MINT, solLamportsToLP, botConfig.minRange, botConfig.maxRange, { type: botConfig.strategyType }, botMode);
-                    
-                    if (botMode === "dry_run") {
-                        sendMessage(`ℹ️ *DRY RUN: Entry Skipped*\nToken: ${token.symbol}\nPool: \`${targetPool.address}\``);
-                        continue;
-                    }
-                    
-                    let entryPriceUsd = null;
-                    try {
-                        const { fetchWithRetry } = require('./api-utils.cjs');
-                        const res = await fetchWithRetry(`https://api.jup.ag/price/v3?ids=${token.address}`);
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data[token.address] && data[token.address].usdPrice) {
-                                entryPriceUsd = parseFloat(data[token.address].usdPrice);
-                            } else if (data.data && data.data[token.address]) {
-                                entryPriceUsd = parseFloat(data.data[token.address].price || data.data[token.address].usdPrice);
-                            }
-                        }
-                    } catch (e) {
-                        console.error(`Failed to fetch Jupiter price for ${token.symbol}:`, e.message);
-                    }
-                    
-                    const newPos = {
-                        positionPubKey: result.positionPubKey,
-                        poolAddress: targetPool.address,
-                        tokenMint: token.address,
-                        tokenSymbol: token.symbol,
-                        openedBy: "auto",
-                        investedSol: solToDeploy,
-                        entryBinPrice: result.activeBinPrice,
-                        entryPriceUsd: entryPriceUsd,
-                        minBinId: result.minBinId,
-                        maxBinId: result.maxBinId,
-                        entryReason: token.ai_reason || "Memenuhi syarat fundamental & Supertrend hijau",
-                        closeMode: "auto"
-                    };
-                    
-                    addPosition(newPos);
-                    logTrade('ENTRY', newPos);
-                    
-                    const timeStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
-                    sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\`\n💡 *Reason:* ${newPos.entryReason}\n⏱ *Time:* ${timeStr}`);
-                    
-                } catch (e) {
-                    console.error(`Error processing ${token.symbol}:`, e.message);
-                }
-            }
-        } else {
-            console.log("No available slots for new positions or no candidates.");
-        }
-    }
-}
 
 async function runBot() {
     const configPath = path.join(__dirname, '..', 'user-config.json');
@@ -657,8 +517,14 @@ async function runBot() {
             console.log(`[Scraper] Starting scheduled scrape (Cron: ${cronExpression})...`);
             await runScraper();
             
-            // Process the newly scraped candidates immediately
-            await processCandidates(autoEntry, currentMaxPositions, botConfig, connection, walletKeypair, botMode);
+            await processCandidates({
+                autoEntry: autoEntry,
+                maxPositions: currentMaxPositions,
+                botConfig: botConfig,
+                connection: connection,
+                walletKeypair: walletKeypair,
+                botMode: botMode
+            });
         } catch (e) {
             console.error('[Scraper] Error in cron job:', e);
         } finally {
@@ -692,7 +558,14 @@ async function runBot() {
         } else {
             console.log(`[Startup] Running initial scrape and screening...`);
             await runScraper();
-            await processCandidates(autoEntry, currentMaxPositions, botConfig, connection, walletKeypair, botMode);
+            await processCandidates({
+                autoEntry: autoEntry,
+                maxPositions: currentMaxPositions,
+                botConfig: botConfig,
+                connection: connection,
+                walletKeypair: walletKeypair,
+                botMode: botMode
+            });
         }
     } catch (e) {
         console.error('[Startup Error]:', e);

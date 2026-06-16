@@ -63,7 +63,7 @@ async function askAI(promptText) {
 }
 
 async function screenCandidates(candidates, maxLimit) {
-    if (candidates.length <= maxLimit) {
+    if (candidates.length === 0) {
         return candidates; 
     }
     
@@ -103,9 +103,6 @@ async function screenCandidates(candidates, maxLimit) {
     const remainingSlots = maxLimit - finalSelection.length;
     
     if (remainingSlots > 0 && normalCandidates.length > 0) {
-        if (normalCandidates.length <= remainingSlots) {
-            finalSelection.push(...normalCandidates);
-        } else {
             const configPath = path.join(__dirname, '..', 'user-config.json');
             let config = {};
             try {
@@ -114,9 +111,24 @@ async function screenCandidates(candidates, maxLimit) {
                 console.warn("Could not read user-config.json for AI settings.");
             }
             
+            let mindsetData = "";
+            try {
+                const mindsetPath = path.join(__dirname, '..', 'hermes-mindset.json');
+                if (fs.existsSync(mindsetPath)) {
+                    mindsetData = fs.readFileSync(mindsetPath, 'utf-8');
+                }
+            } catch (e) {
+                console.warn("Could not read hermes-mindset.json.");
+            }
+
             const model = process.env.AI_MODEL || config.aiConfig?.model || "nousresearch/hermes-3-llama-3.1-405b";
             const baseUrl = process.env.AI_BASE_URL || config.aiConfig?.baseUrl || "https://openrouter.ai/api/v1";
-            const systemPrompt = config.aiConfig?.systemPrompt || "You are Hermes Agent, an elite crypto trading analyst.";
+            let systemPrompt = config.aiConfig?.systemPrompt || "You are Hermes Agent, an elite crypto trading analyst.";
+            
+            if (mindsetData) {
+                systemPrompt += `\n\n=== HERMES AI CORE MINDSET & STRATEGY ===\n${mindsetData}\n=========================================\n`;
+                systemPrompt += `Please strictly apply the coreStrategy and rankingScoringSystem defined above when evaluating candidates.`;
+            }
             
             // Reduce payload size to prevent 504 timeouts
             const essentialCandidates = normalCandidates.map(c => ({
@@ -130,7 +142,11 @@ async function screenCandidates(candidates, maxLimit) {
                 smart_degen_count: c.smart_degen_count,
                 is_honeypot: c.is_honeypot,
                 volume_trend: c.volumeTrend,
-                volume_change_percent: c.volumeChangePercent
+                volume_change_percent: c.volumeChangePercent,
+                is_new_ath: c.is_new_ath,
+                top_10_holder_percent: c.top_10_holder_percent || "Unknown",
+                dev_holds_percent: c.dev_holds_percent || "Unknown",
+                is_lp_burnt: c.is_lp_burnt !== undefined ? c.is_lp_burnt : "Unknown"
             }));
 
             const promptText = `
@@ -138,11 +154,9 @@ I have ${normalCandidates.length} token candidates, but I can only enter ${remai
 Please analyze the following candidates and select the best ${remainingSlots}.
 
 CRITICAL RANKING RULE:
-You MUST prioritize tokens based on 'volume_change_percent' (Volume Trend Analysis). For our wide-range Liquidity Pool strategy, sustained volume is the absolute most important metric.
-1. Higher 'volume_change_percent' is always better (positive means accelerating, near zero means highly stable).
-2. Tokens with lower/negative 'volume_change_percent' MUST be ranked lower or rejected, even if they have higher market cap, holder count, or smart degen count.
+You MUST prioritize tokens based on the 'rankingScoringSystem' from your Core Mindset. Focus on ATH Breakouts, Volume Momentum, and Safety Metrics (LP Burnt, Low Top 10 Holders).
 
-Return ONLY a valid JSON array of objects, sorted from best to worst. Each object MUST have exactly two fields: "address" (the token address) and "ai_reason" (string explaining in Indonesian why it was chosen, specifically mentioning its Volume Trend data, max 2 sentences). Do not include markdown formatting like \`\`\`json.
+Return ONLY a valid JSON array of objects, sorted from best to worst. Each object MUST have exactly two fields: "address" (the token address) and "ai_reason" (string explaining in Indonesian why it was chosen based on the strategy, max 2 sentences). Do not include markdown formatting like \`\`\`json.
 
 Candidates:
 ${JSON.stringify(essentialCandidates, null, 2)}
@@ -176,10 +190,7 @@ ${JSON.stringify(essentialCandidates, null, 2)}
                 console.error("AI screening failed. Falling back to simple slice.", e.message);
                 finalSelection.push(...normalCandidates.slice(0, remainingSlots));
             }
-        }
     }
-    
-    // Final safety slice to ensure we don't exceed maxLimit
     return finalSelection.slice(0, maxLimit);
 }
 

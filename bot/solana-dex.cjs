@@ -8,7 +8,7 @@ const { fetchWithRetry, rpcRetryWrapper } = require('./api-utils.cjs');
 
 // --- JUPITER LOGIC ---
 async function getQuote(inputMint, outputMint, amountLamports, slippageBps = 50) {
-    const url = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountLamports}&slippageBps=${slippageBps}`;
+    const url = `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountLamports}&slippageBps=${slippageBps}`;
     const response = await fetchWithRetry(url);
     if (!response.ok) {
         throw new Error(`Jupiter Quote API Error: ${response.statusText}`);
@@ -18,7 +18,7 @@ async function getQuote(inputMint, outputMint, amountLamports, slippageBps = 50)
 }
 
 async function getSwapTransaction(quoteResponse, walletPublicKey) {
-    const url = 'https://quote-api.jup.ag/v6/swap';
+    const url = 'https://api.jup.ag/swap/v1/swap';
     const response = await fetchWithRetry(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

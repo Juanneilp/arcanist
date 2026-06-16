@@ -514,35 +514,11 @@ if (token && token !== 'your_telegram_bot_token') {
             const { runScraper } = require('./scraper.cjs');
             await runScraper();
             
-            const candidatesPath = path.join(__dirname, '..', 'candidates.json');
-            if (fs.existsSync(candidatesPath)) {
-                let candidates = JSON.parse(fs.readFileSync(candidatesPath, 'utf-8'));
-                if (candidates.length > 0) {
-                    const { screenCandidates } = require('./ai-agent.cjs');
-                    ctx.reply(`🔍 Ditemukan ${candidates.length} candidates. Requesting Hermes AI screening...`);
-                    // AI Screening (Get top 3)
-                    candidates = await screenCandidates(candidates, 3);
-                    
-                    let aiMsg = `🤖 *Hermes AI Selection (Top ${candidates.length})* 🤖\n━━━━━━━━━━━━━━━━━━\n`;
-                    candidates.forEach((t, index) => {
-                        const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎';
-                        const cleanName = t.name ? t.name.replace(/[_*`\[\]]/g, '') : 'Unknown';
-                        const cleanReason = t.ai_reason ? t.ai_reason.replace(/[_*`\[\]]/g, '') : '';
-                        aiMsg += `${rankEmoji} *${cleanName}* (${t.symbol})\n`;
-                        aiMsg += `🔗 \`${t.address}\`\n`;
-                        aiMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
-                        
-                        let statsStr = `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count}`;
-                        if (t.latestSupertrend !== undefined) statsStr += `\n📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}`;
-                        if (t.volumeTrend !== undefined) statsStr += ` | 🌊 *Vol Trend:* ${t.volumeTrend} (${(t.volumeChangePercent || 0).toFixed(1)}%)`;
-                        aiMsg += `${statsStr}\n`;
-                        
-                        if (cleanReason) aiMsg += `💡 *Reason:* _${cleanReason}_\n`;
-                        aiMsg += `━━━━━━━━━━━━━━━━━━\n`;
-                    });
-                    ctx.replyWithMarkdown(aiMsg);
-                }
-            }
+            const { processCandidates } = require('./engine.cjs');
+            await processCandidates({
+                autoEntry: false,
+                skipDeployment: true
+            });
             
             ctx.reply("✅ Proses screening selesai. Anda bisa menggunakan /open untuk entry manual.");
         } catch (e) {
