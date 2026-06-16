@@ -369,10 +369,9 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                         percentageToZapOut: 100 // 100% of the received tokens
                     });
 
-                    const lastTx = mainTxs[mainTxs.length - 1];
-                    lastTx.add(zapOutTx);
+                    mainTxs.push(zapOutTx);
                     zapAttached = true;
-                    console.log(`[LIVE] Zap Out through Jupiter attached to transaction.`);
+                    console.log(`[LIVE] Zap Out through Jupiter appended as separate transaction.`);
                 }
             } catch (e) {
                 console.log(`[LIVE] Zap Out preparation failed: ${e.message}. Proceeding without atomic Zap Out.`);

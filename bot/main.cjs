@@ -14,6 +14,15 @@ const { monitoringLoop } = require('./monitor.cjs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err.message || err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection:', reason?.message || reason);
+});
+
+
 async function runBot() {
     const configPath = path.join(__dirname, '..', 'user-config.json');
     if (!fs.existsSync(configPath)) {

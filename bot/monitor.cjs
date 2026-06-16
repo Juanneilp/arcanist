@@ -230,9 +230,45 @@ async function monitoringLoop(connection, walletKeypair) {
         
         const exitData = await evaluateExitCondition(pos);
         if (exitData.shouldExit) {
+            let finalPnlUsd = undefined;
+            let finalPnlPct = undefined;
+            let finalPnlSol = undefined;
+            let pnlMessageStr = "";
+            
+            try {
+                const { fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
+                const detailsMap = await fetchMeteoraPositionDetails(walletKeypair.publicKey.toBase58());
+                if (detailsMap && detailsMap[pos.positionPubKey]) {
+                    finalPnlUsd = detailsMap[pos.positionPubKey].pnlUsd;
+                    finalPnlPct = detailsMap[pos.positionPubKey].pnlPct;
+                    
+                    const { getSolPriceUsd } = require('./solana-dex.cjs');
+                    const solPrice = await getSolPriceUsd();
+                    if (solPrice > 0 && finalPnlUsd !== undefined) {
+                        finalPnlSol = finalPnlUsd / solPrice;
+                    }
+                    
+                    const pnlSign = finalPnlUsd >= 0 ? "+" : "";
+                    const configPath = path.join(__dirname, '..', 'user-config.json');
+                    let pnlCurrency = 'USD';
+                    try {
+                        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+                        pnlCurrency = config.monitoringConfig?.pnlCurrency || 'USD';
+                    } catch(e) {}
+                    
+                    if (pnlCurrency === 'SOL' && finalPnlSol !== undefined) {
+                        pnlMessageStr = `\n💰 *Est PnL:* ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                    } else {
+                        pnlMessageStr = `\n💰 *Est PnL:* ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                    }
+                }
+            } catch(e) {
+                console.error('Failed to fetch PnL before closing:', e.message);
+            }
+
             console.log(`[Monitor] Exit condition met for position ${pos.positionPubKey}. Reason: ${exitData.reason}`);
             const timeStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
-            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${pos.tokenSymbol}\nReason: ${exitData.reason}\n⏱ *Time:* ${timeStr}`);
+            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${pos.tokenSymbol}\nReason: ${exitData.reason}${pnlMessageStr}\n⏱ *Time:* ${timeStr}`);
             
             try {
                 await removeLiquidity(connection, walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
@@ -252,11 +288,14 @@ async function monitoringLoop(connection, walletKeypair) {
                         sendMessage(`ℹ️ Dust value too low (~$${swapResult.usdValue.toFixed(2)}). Skipped swap.`);
                     }
                 }
-                
+
                 logTrade('EXIT', {
                     ...pos,
                     reason: exitData.reason,
-                    reclaimedSol
+                    reclaimedSol,
+                    pnlUsd: finalPnlUsd,
+                    pnlPct: finalPnlPct,
+                    pnlSol: finalPnlSol
                 });
             } catch (e) {
                 console.error(`Error closing position ${pos.positionPubKey}:`, e);

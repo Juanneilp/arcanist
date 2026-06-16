@@ -21,6 +21,7 @@ if (token && token !== 'your_telegram_bot_token') {
                         `/scrape - Force run scraper & AI screening\n` +
                         `/getconfig [key] - View bot configuration\n` +
                         `/setconfig <key> <value> - Update bot configuration\n` +
+                        `/currency [USD|SOL] - Toggle PnL calculation currency\n` +
                         `/blacklist <address> - Add token to blacklist\n` +
                         `/unblacklist <address> - Remove token from blacklist\n` +
                         `/chat [message] - Chat with Hermes AI Analyst`;
@@ -39,6 +40,7 @@ if (token && token !== 'your_telegram_bot_token') {
     bot.command('scrape', handlers.authGuard, handlers.scrapeCommand);
     bot.command('getconfig', handlers.authGuard, handlers.getConfigCommand);
     bot.command('setconfig', handlers.authGuard, handlers.setConfigCommand);
+    bot.command('currency', handlers.authGuard, handlers.currencyCommand);
     bot.command('blacklist', handlers.authGuard, handlers.blacklistCommand);
     bot.command('unblacklist', handlers.authGuard, handlers.unblacklistCommand);
     bot.command('chat', handlers.authGuard, handlers.chatCommand);
@@ -65,6 +67,7 @@ if (token && token !== 'your_telegram_bot_token') {
             { command: 'scrape', description: 'Force run scraper and AI screening' },
             { command: 'getconfig', description: 'View config (/getconfig [key])' },
             { command: 'setconfig', description: 'Modify config (/setconfig <key> <value>)' },
+            { command: 'currency', description: 'Toggle PnL display currency' },
             { command: 'chat', description: 'Chat with Hermes AI Analyst' },
             { command: 'blacklist', description: 'Add token to blacklist' },
             { command: 'unblacklist', description: 'Remove token from blacklist' }
@@ -83,7 +86,11 @@ if (token && token !== 'your_telegram_bot_token') {
 function sendMessage(text) {
     if (bot && chatId) {
         bot.telegram.sendMessage(chatId, text, { parse_mode: 'Markdown' })
-            .catch(e => console.error("Telegram Error:", e.message));
+            .catch(e => {
+                console.error("Telegram Markdown Error:", e.message, "- Retrying as plain text...");
+                return bot.telegram.sendMessage(chatId, text);
+            })
+            .catch(e => console.error("Telegram Error (Plain Text):", e.message));
     } else {
         console.log(`[Telegram] ${text}`);
     }

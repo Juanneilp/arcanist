@@ -17,6 +17,15 @@ function setupSolanaContext() {
     }
 }
 
+async function safeReplyWithMarkdown(ctx, msg) {
+    try {
+        await ctx.replyWithMarkdown(msg);
+    } catch (e) {
+        console.warn(`[Telegram] Markdown parse error (${e.message}), falling back to plain text.`);
+        await ctx.reply(msg);
+    }
+}
+
 // Middleware: Auth Guard
 const authGuard = async (ctx, next) => {
     const allowedIds = [process.env.TELEGRAM_CHAT_ID].filter(Boolean);
@@ -53,10 +62,17 @@ async function sendPositionsCommand(ctx) {
 
         const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
         let currentMaxPositions = 1;
+        let pnlCurrency = 'USD';
+        let solPriceUsd = 1;
         try {
             const currentConfig = JSON.parse(fs.readFileSync(currentConfigPath, 'utf-8'));
             currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || 1;
+            pnlCurrency = currentConfig.monitoringConfig?.pnlCurrency || 'USD';
         } catch(e) {}
+        
+        if (pnlCurrency === 'SOL') {
+            solPriceUsd = await require('./solana-dex.cjs').getSolPriceUsd();
+        }
 
         let msg = `📊 *Wallet & Open Positions*\n─────────────────\n`;
         msg += `💳 *Wallet Balance*: ${solBalance.toFixed(4)} SOL\n`;
@@ -64,7 +80,7 @@ async function sendPositionsCommand(ctx) {
 
         if (currentActivePositions.length === 0) {
             msg += `No active positions.`;
-            ctx.replyWithMarkdown(msg);
+            await safeReplyWithMarkdown(ctx, msg);
         } else {
             const aiPositions = currentActivePositions.filter(p => p.openedBy === "auto");
             const manualPositions = currentActivePositions.filter(p => p.openedBy === "manual");
@@ -85,7 +101,12 @@ async function sendPositionsCommand(ctx) {
                         const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         
-                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        if (pnlCurrency === 'SOL' && solPriceUsd > 0) {
+                            const pnlSol = Math.abs(details.pnlUsd) / solPriceUsd;
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        } else {
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
@@ -115,7 +136,12 @@ async function sendPositionsCommand(ctx) {
                         const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         
-                        msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        if (pnlCurrency === 'SOL' && solPriceUsd > 0) {
+                            const pnlSol = Math.abs(details.pnlUsd) / solPriceUsd;
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${pnlSol.toFixed(4)} SOL (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        } else {
+                            msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${details.pnlPct.toFixed(2)}%)\n`;
+                        }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
@@ -132,7 +158,7 @@ async function sendPositionsCommand(ctx) {
             }
             
             msg += `────────────────`;
-            ctx.replyWithMarkdown(msg);
+            await safeReplyWithMarkdown(ctx, msg);
         }
     } catch (e) {
         ctx.reply("❌ Failed to read positions: " + e.message);
@@ -287,12 +313,42 @@ async function closeCommand(ctx) {
         }
         
         ctx.reply(`⏳ Closing position ${pos.tokenSymbol} (\`${pos.positionPubKey}\`) in ${botMode.toUpperCase()} mode...`, { parse_mode: 'Markdown' });
+        let finalPnlUsd, finalPnlPct, finalPnlSol;
+        try {
+            const { fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
+            const detailsMap = await fetchMeteoraPositionDetails(solCtx.walletKeypair.publicKey.toBase58());
+            if (detailsMap && detailsMap[pos.positionPubKey]) {
+                finalPnlUsd = detailsMap[pos.positionPubKey].pnlUsd;
+                finalPnlPct = detailsMap[pos.positionPubKey].pnlPct;
+                const { getSolPriceUsd } = require('./solana-dex.cjs');
+                const solPrice = await getSolPriceUsd();
+                if (solPrice > 0 && finalPnlUsd !== undefined) finalPnlSol = finalPnlUsd / solPrice;
+            }
+        } catch(e) {}
+        
         const txid = await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
         
         removePosition(pos.positionPubKey);
-        logTrade('EXIT', { ...pos, reason: "Manual close from Telegram" });
+        logTrade('EXIT', { ...pos, reason: "Manual close from Telegram", pnlUsd: finalPnlUsd, pnlPct: finalPnlPct, pnlSol: finalPnlSol });
         const statusStr = typeof txid === 'string' ? txid : (txid && txid.status ? txid.status : 'success');
-        ctx.reply(`✅ *Position Closed!*\nStatus/TxID: \`${statusStr}\``, { parse_mode: 'Markdown' });
+        
+        let pnlMsg = "";
+        if (finalPnlUsd !== undefined) {
+            const pnlSign = finalPnlUsd >= 0 ? "+" : "";
+            const configPath = path.join(__dirname, '..', 'user-config.json');
+            let pnlCurrency = 'USD';
+            try {
+                const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+                pnlCurrency = config.monitoringConfig?.pnlCurrency || 'USD';
+            } catch(e) {}
+            if (pnlCurrency === 'SOL' && finalPnlSol !== undefined) {
+                pnlMsg = `\n💰 *Est PnL:* ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+            } else {
+                pnlMsg = `\n💰 *Est PnL:* ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+            }
+        }
+        
+        ctx.reply(`✅ *Position Closed!*\nStatus/TxID: \`${statusStr}\`${pnlMsg}`, { parse_mode: 'Markdown' });
     } catch (e) {
         ctx.reply(`❌ Error closing position: ${e.message}`);
     }
@@ -358,9 +414,39 @@ async function confirmCloseAllAction(ctx) {
             const pos = positions[i];
             ctx.reply(`⏳ Closing ${i+1}/${positions.length}: ${pos.tokenSymbol}...`);
             try {
+                let finalPnlUsd, finalPnlPct, finalPnlSol;
+                try {
+                    const { fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
+                    const detailsMap = await fetchMeteoraPositionDetails(solCtx.walletKeypair.publicKey.toBase58());
+                    if (detailsMap && detailsMap[pos.positionPubKey]) {
+                        finalPnlUsd = detailsMap[pos.positionPubKey].pnlUsd;
+                        finalPnlPct = detailsMap[pos.positionPubKey].pnlPct;
+                        const { getSolPriceUsd } = require('./solana-dex.cjs');
+                        const solPrice = await getSolPriceUsd();
+                        if (solPrice > 0 && finalPnlUsd !== undefined) finalPnlSol = finalPnlUsd / solPrice;
+                    }
+                } catch(e) {}
+                
                 await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
                 removePosition(pos.positionPubKey);
-                logTrade('EXIT', { ...pos, reason: "Manual close_all from Telegram" });
+                logTrade('EXIT', { ...pos, reason: "Manual close_all from Telegram", pnlUsd: finalPnlUsd, pnlPct: finalPnlPct, pnlSol: finalPnlSol });
+                
+                let pnlMsg = "";
+                if (finalPnlUsd !== undefined) {
+                    const pnlSign = finalPnlUsd >= 0 ? "+" : "";
+                    const configPath = path.join(__dirname, '..', 'user-config.json');
+                    let pnlCurrency = 'USD';
+                    try {
+                        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+                        pnlCurrency = config.monitoringConfig?.pnlCurrency || 'USD';
+                    } catch(e) {}
+                    if (pnlCurrency === 'SOL' && finalPnlSol !== undefined) {
+                        pnlMsg = ` - PnL: ${pnlSign}${Math.abs(finalPnlSol).toFixed(4)} SOL (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                    } else {
+                        pnlMsg = ` - PnL: ${pnlSign}$${Math.abs(finalPnlUsd).toFixed(2)} (${pnlSign}${finalPnlPct.toFixed(2)}%)`;
+                    }
+                }
+                ctx.reply(`✅ Closed ${pos.tokenSymbol}${pnlMsg}`);
             } catch(err) {
                 ctx.reply(`❌ Failed to close ${pos.tokenSymbol}: ${err.message}`);
             }
@@ -383,6 +469,12 @@ async function cancelCloseAllAction(ctx) {
 async function historyCommand(ctx) {
     try {
         const historyPath = path.join(__dirname, '..', 'trade_history.json');
+        const configPath = path.join(__dirname, '..', 'user-config.json');
+        let pnlCurrency = 'USD';
+        if (fs.existsSync(configPath)) {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            pnlCurrency = config.monitoringConfig?.pnlCurrency || 'USD';
+        }
         if (!fs.existsSync(historyPath)) {
             return ctx.reply("📜 No trade history found.");
         }
@@ -404,15 +496,25 @@ async function historyCommand(ctx) {
             }
             const date = new Date(trade.timestamp).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
             msg += `   ⏱ Time: ${date}\n`;
-            if (!isEntry && trade.reclaimedSol) {
-                msg += `   💰 Reclaimed: ${trade.reclaimedSol.toFixed(4)} SOL\n`;
+            if (!isEntry) {
+                if (trade.reclaimedSol) msg += `   💰 Reclaimed Dust: ${trade.reclaimedSol.toFixed(4)} SOL\n`;
+                if (trade.pnlUsd !== undefined && trade.pnlPct !== undefined) {
+                    const pnlSign = trade.pnlUsd >= 0 ? "+" : "";
+                    const pnlColor = trade.pnlUsd >= 0 ? "🟢" : "🔴";
+                    let pnlDisplay = `${Math.abs(trade.pnlUsd).toFixed(2)}`;
+                    
+                    if (pnlCurrency === 'SOL' && trade.pnlSol !== undefined) {
+                        pnlDisplay = `${Math.abs(trade.pnlSol).toFixed(4)} SOL`;
+                    }
+                    msg += `   ${pnlColor} PnL: ${pnlSign}${pnlDisplay} (${pnlSign}${trade.pnlPct.toFixed(2)}%)\n`;
+                }
             } else if (isEntry && trade.investedSol) {
                 msg += `   💰 Invested: ${trade.investedSol.toFixed(4)} SOL\n`;
             }
             msg += `\n`;
         });
         
-        ctx.replyWithMarkdown(msg);
+        await safeReplyWithMarkdown(ctx, msg);
     } catch (e) {
         ctx.reply("❌ Error reading history: " + e.message);
     }
@@ -465,7 +567,7 @@ async function toggleAutoCommand(ctx) {
             
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
             
-            ctx.replyWithMarkdown(`⚙️ Bot Mode Changed!\nEntry Mode: *${newMode}*\nClose Mode: *${newMode}*`);
+            await safeReplyWithMarkdown(ctx, `⚙️ Bot Mode Changed!\nEntry Mode: *${newMode}*\nClose Mode: *${newMode}*`);
         } else {
             ctx.reply("❌ user-config.json not found.");
         }
@@ -515,13 +617,13 @@ async function getConfigCommand(ctx) {
                     return ctx.reply(`❌ Key \`${keyPath}\` not found in config.`, { parse_mode: 'Markdown' });
                 }
             }
-            ctx.replyWithMarkdown(`*Key*: \`${keyPath}\`\n*Value*: \`${JSON.stringify(current, null, 2)}\``);
+            await safeReplyWithMarkdown(ctx, `*Key*: \`${keyPath}\`\n*Value*: \`${JSON.stringify(current, null, 2)}\``);
         } else {
             const configStr = JSON.stringify(config, null, 2);
             if (configStr.length > 4000) {
                 ctx.replyWithDocument({ source: configPath, filename: 'user-config.json' });
             } else {
-                ctx.replyWithMarkdown(`\`\`\`json\n${configStr}\n\`\`\``);
+                await safeReplyWithMarkdown(ctx, `\`\`\`json\n${configStr}\n\`\`\``);
             }
         }
     } catch (e) {
@@ -575,7 +677,7 @@ async function setConfigCommand(ctx) {
         
         let safeOldValue = oldValue === undefined ? "undefined" : JSON.stringify(oldValue);
         let safeNewValue = JSON.stringify(value);
-        ctx.replyWithMarkdown(`✅ Config updated successfully!\n*Key*: \`${keyPath}\`\n*Old Value*: \`${safeOldValue}\`\n*New Value*: \`${safeNewValue}\``);
+        await safeReplyWithMarkdown(ctx, `✅ Config updated successfully!\n*Key*: \`${keyPath}\`\n*Old Value*: \`${safeOldValue}\`\n*New Value*: \`${safeNewValue}\``);
     } catch (e) {
         ctx.reply("❌ Failed to update config: " + e.message);
     }
@@ -650,9 +752,47 @@ async function chatCommand(ctx) {
     try {
         const { askAI } = require('./ai-agent.cjs');
         const aiResponse = await askAI(messageText);
-        ctx.replyWithMarkdown(aiResponse);
+        try {
+            await ctx.replyWithMarkdown(aiResponse);
+        } catch (mdError) {
+            console.warn(`[Telegram] Failed to send AI response as Markdown, falling back to plain text. Reason: ${mdError.message}`);
+            await ctx.reply(aiResponse);
+        }
     } catch (e) {
         ctx.reply("❌ AI Error: " + e.message);
+    }
+}
+
+
+async function currencyCommand(ctx) {
+    try {
+        const text = ctx.message.text.trim();
+        const parts = text.split(/\s+/);
+        
+        const configPath = path.join(__dirname, '..', 'user-config.json');
+        if (!fs.existsSync(configPath)) {
+            return ctx.reply("❌ user-config.json not found.");
+        }
+        
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (!config.monitoringConfig) config.monitoringConfig = {};
+        
+        if (parts.length < 2) {
+            const current = config.monitoringConfig.pnlCurrency || 'USD';
+            return ctx.reply(`ℹ️ Current PnL calculation currency is: *${current}*\nUse /currency USD or /currency SOL to change it.`, { parse_mode: 'Markdown' });
+        }
+        
+        const newCurrency = parts[1].toUpperCase();
+        if (newCurrency !== 'USD' && newCurrency !== 'SOL') {
+            return ctx.reply("❌ Invalid currency. Use USD or SOL.");
+        }
+        
+        config.monitoringConfig.pnlCurrency = newCurrency;
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        
+        await safeReplyWithMarkdown(ctx, `✅ PnL calculation currency changed to: *${newCurrency}*`);
+    } catch (e) {
+        ctx.reply("❌ Failed to set currency: " + e.message);
     }
 }
 
@@ -672,5 +812,6 @@ module.exports = {
     setConfigCommand,
     blacklistCommand,
     unblacklistCommand,
-    chatCommand
+    chatCommand,
+    currencyCommand
 };

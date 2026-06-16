@@ -94,8 +94,11 @@ async function screenCandidates(candidates, maxLimit) {
     
     const remainingSlotsAfterATH = maxLimit - finalSelection.length;
     
-    // 2. Prioritize Best Volume Trend
-    if (remainingSlotsAfterATH > 0 && normalCandidates.length > 0) {
+    // 2. Prioritize Best Volume Trend (only if enabled and data is available)
+    // We check if at least one candidate has volumeChangePercent defined
+    const hasVolumeTrendData = normalCandidates.some(c => c.volumeChangePercent !== undefined);
+    
+    if (remainingSlotsAfterATH > 0 && normalCandidates.length > 0 && hasVolumeTrendData) {
         normalCandidates.sort((a, b) => (b.volumeChangePercent || 0) - (a.volumeChangePercent || 0));
         
         // Take the top volume trend candidate

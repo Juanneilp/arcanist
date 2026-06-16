@@ -35,7 +35,7 @@
       "multiplier": 3
     },
     "volumeTrend": {
-      "enabled": true,
+      "enabled": false,
       "period": 8,
       "acceleratingThreshold": 10,
       "deceleratingThreshold": -40
@@ -61,7 +61,8 @@
     "scraperIntervalMinutes": 5,
     "maxActivePositions": 2,
     "entryMode": "auto",
-    "closeMode": "auto"
+    "closeMode": "auto",
+    "pnlCurrency": "USD"
   },
   "exitConfig": {
     "minUsdDustValueToSwap": 0.2,
