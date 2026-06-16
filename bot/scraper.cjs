@@ -1,10 +1,34 @@
-const { exec, execFile } = require('child_process');
+const { spawn } = require('child_process');
 const util = require('util');
 const fs = require('fs');
 const path = require('path');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-const execFileAsync = util.promisify(execFile);
+
+function spawnAsync(command, args, options) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, options);
+        let stdout = '';
+        let stderr = '';
+        
+        child.stdout.on('data', (data) => stdout += data.toString());
+        child.stderr.on('data', (data) => stderr += data.toString());
+        
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve({ stdout, stderr });
+            } else {
+                const err = new Error(`Command failed with code ${code}`);
+                err.stdout = stdout;
+                err.stderr = stderr;
+                reject(err);
+            }
+        });
+        
+        child.on('error', (err) => reject(err));
+    });
+}
+
 
 // --- SUPERTREND LOGIC ---
 function calculateATR(data, period) {
@@ -152,15 +176,14 @@ async function fetchKlineData(address, timeframe) {
         return null;
     }
     try {
-        const { stdout } = await execFileAsync('npx', [
+        const { stdout } = await spawnAsync('npx', [
             'gmgn-cli', 'market', 'kline',
             '--chain', apiSettings.chain,
             '--address', address,
             '--resolution', timeframe,
             '--raw'
         ], {
-            env: { ...process.env, GMGN_API_KEY: apiKey },
-            maxBuffer: 1024 * 1024 * 10
+            env: { ...process.env, GMGN_API_KEY: apiKey }
         });
         const response = JSON.parse(stdout);
         if (response.list) return response.list;
@@ -189,9 +212,8 @@ async function runScraper() {
         }
         args.push('--raw');
 
-        const { stdout } = await execFileAsync('npx', args, {
-            env: { ...process.env, GMGN_API_KEY: apiKey },
-            maxBuffer: 1024 * 1024 * 10
+        const { stdout } = await spawnAsync('npx', args, {
+            env: { ...process.env, GMGN_API_KEY: apiKey }
         });
         const response = JSON.parse(stdout);
         if (response.code !== 0) return console.error(`API Error: ${response.msg}`);
