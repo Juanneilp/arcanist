@@ -138,6 +138,7 @@ async function screenCandidates(candidates, maxLimit) {
                 price: c.price,
                 volume: c.volume,
                 market_cap: c.market_cap,
+                history_highest_market_cap: c.history_highest_market_cap,
                 holder_count: c.holder_count,
                 smart_degen_count: c.smart_degen_count,
                 is_honeypot: c.is_honeypot,

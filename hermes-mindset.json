@@ -11,7 +11,8 @@
     "avoidIf": [
       "Breakout terjadi tetapi diiringi dengan volume yang rendah atau melambat (indikasi fakeout).",
       "Top 10 holder terlihat melakukan aksi jual (taking profit) besar-besaran saat harga mendekati ATH.",
-      "Terdeteksi adanya aktivitas wash trading."
+      "Terdeteksi adanya aktivitas wash trading.",
+      "Hindari token yang market cap saat ini telah turun lebih dari -90% dari history_highest_market_cap (ATH). Ini merupakan indikasi 'dead project' atau 'slow rug' yang kehilangan momentum komunitasnya."
     ]
   },
   "requiredDataSourcesForAI": {

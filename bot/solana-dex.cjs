@@ -495,7 +495,13 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     const txid = await rpcRetryWrapper(async () => {
                         const latestBlockHash = await connection.getLatestBlockhash();
                         tx.recentBlockhash = latestBlockHash.blockhash;
-                        return await connection.sendTransaction(tx, [walletKeypair]);
+                        const sig = await connection.sendTransaction(tx, [walletKeypair]);
+                        await connection.confirmTransaction({
+                            signature: sig,
+                            blockhash: latestBlockHash.blockhash,
+                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                        }, "confirmed");
+                        return sig;
                     });
                     txids.push(txid);
                 }
@@ -530,7 +536,13 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                         const txid = await rpcRetryWrapper(async () => {
                             const latestBlockHash = await connection.getLatestBlockhash();
                             tx.recentBlockhash = latestBlockHash.blockhash;
-                            return await connection.sendTransaction(tx, [walletKeypair]);
+                            const sig = await connection.sendTransaction(tx, [walletKeypair]);
+                            await connection.confirmTransaction({
+                                signature: sig,
+                                blockhash: latestBlockHash.blockhash,
+                                lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                            }, "confirmed");
+                            return sig;
                         });
                         txids.push(txid);
                     }
@@ -574,11 +586,18 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                                 transaction.sign([walletKeypair]);
 
                                 const rawTransaction = transaction.serialize();
+                                const latestBlockHash = await connection.getLatestBlockhash();
                                 const fallbackTxid = await rpcRetryWrapper(async () => {
-                                    return await connection.sendRawTransaction(rawTransaction, {
+                                    const sig = await connection.sendRawTransaction(rawTransaction, {
                                         skipPreflight: true,
                                         maxRetries: 2
                                     });
+                                    await connection.confirmTransaction({
+                                        signature: sig,
+                                        blockhash: latestBlockHash.blockhash,
+                                        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
+                                    }, "confirmed");
+                                    return sig;
                                 });
                                 console.log(`[LIVE] Fallback Swap TX: ${fallbackTxid}`);
                                 txids.push(fallbackTxid);
