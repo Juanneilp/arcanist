@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-const execAsync = util.promisify(exec);
 const execFileAsync = util.promisify(execFile);
 
 // --- SUPERTREND LOGIC ---
@@ -148,6 +147,10 @@ console.log(`Starting GMGN Scraper...`);
 const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
 
 async function fetchKlineData(address, timeframe) {
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address) && !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+        console.error(`[Security] Invalid address format detected: ${address}`);
+        return null;
+    }
     try {
         const { stdout } = await execFileAsync('npx', [
             'gmgn-cli', 'market', 'kline',

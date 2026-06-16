@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { exec, execFile } = require('child_process');
 const util = require('util');
-const execAsync = util.promisify(exec);
 const execFileAsync = util.promisify(execFile);
 const { Connection, Keypair, PublicKey } = require('@solana/web3.js');
 const bs58 = require('bs58').default || require('bs58');
@@ -55,6 +54,12 @@ async function evaluateExitCondition(position) {
     const chain = userConfig.apiSettings?.chain || 'sol';
     // Only need ~100 candles for MACD(26) to stabilize. 100 * 15m = 25 hours. We fetch last 48 hours to be safe.
     const fromTimestamp = Math.floor(Date.now() / 1000) - (48 * 60 * 60);
+    
+    // Secure validation: Only allow Base58 Solana addresses or Hex EVM addresses
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(position.tokenMint) && !/^0x[a-fA-F0-9]{40}$/.test(position.tokenMint)) {
+        console.error(`[Security] Invalid address format detected: ${position.tokenMint}`);
+        return { shouldExit: false };
+    }
     
     try {
         const { stdout } = await execFileAsync('npx', [

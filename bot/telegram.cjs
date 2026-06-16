@@ -10,12 +10,18 @@ let bot;
 if (token && token !== 'your_telegram_bot_token') {
     bot = new Telegraf(token);
     
+    const isAuthorized = (ctx) => {
+        const allowedIds = [process.env.TELEGRAM_CHAT_ID].filter(Boolean);
+        return allowedIds.includes(String(ctx.from?.id)) ||
+               allowedIds.includes(String(ctx.chat?.id));
+    };
+
     bot.use((ctx, next) => {
-        if (ctx.chat && ctx.chat.id.toString() === chatId) {
-            return next();
-        } else {
-            console.warn(`[Security] Unauthorized access attempt from chat ID: ${ctx.chat?.id}`);
+        if (!isAuthorized(ctx)) {
+            console.warn(`[Security] Unauthorized access attempt from chat ID: ${ctx.chat?.id} / user ID: ${ctx.from?.id}`);
+            return; // silent reject
         }
+        return next();
     });
 
     // Command: /start or /help
@@ -682,6 +688,9 @@ if (token && token !== 'your_telegram_bot_token') {
         if (!messageText) {
             return ctx.reply("Please provide a message. Example: /chat What is the best strategy today?");
         }
+        
+        // --- PATCH 3: Audit Logging ---
+        console.log(`[Audit/Chat] User ${ctx.from?.id} (${ctx.from?.username || 'Unknown'}) asked: ${messageText.substring(0, 500)}`);
         
         ctx.reply("🤖 Thinking...");
         try {

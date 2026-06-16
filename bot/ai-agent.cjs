@@ -42,6 +42,14 @@ async function callOpenRouter(messages, model, baseUrl = "https://openrouter.ai/
 }
 
 async function askAI(promptText) {
+    // --- PATCH 3: Input Sanitization ---
+    if (promptText.length > 500) {
+        promptText = promptText.substring(0, 500);
+    }
+    promptText = promptText.replace(/```(system|user|assistant|instruction)/gi, '')
+                           .replace(/\[\/?INST\]/gi, '')
+                           .replace(/<[^>]*>/g, ''); // strip XML/HTML tags
+                           
     const configPath = path.join(__dirname, '..', 'user-config.json');
     let config = {};
     try {
