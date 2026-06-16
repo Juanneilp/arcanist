@@ -70,7 +70,7 @@
     "tpPercentage": 0,
     "slPercentage": 0,
     "maxHoldHours": 24,
-    "minHoldMinutes": 60,
+    "minHoldMinutes": 30,
     "maxOorDistance": 20,
     "maxOorMinutes": 30,
     "rsi": {

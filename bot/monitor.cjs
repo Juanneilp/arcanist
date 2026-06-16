@@ -53,62 +53,12 @@ async function evaluateExitCondition(position) {
     }
     
     try {
-        const { stdout } = await spawnAsync('npx', [
-            'gmgn-cli', 'market', 'kline', 
-            '--chain', chain, 
-            '--address', position.tokenMint, 
-            '--resolution', '15m', 
-            '--from', fromTimestamp.toString(), 
-            '--raw'
-        ], {
-            env: { ...process.env, GMGN_API_KEY: apiKey }
-        });
-        const response = JSON.parse(stdout);
-        
-        if (!response.list || response.list.length < Math.max(rsiConf.period, bbConf.period, macdConf.slow) + 10) {
-            console.log(`Not enough kline data to evaluate exit for ${position.tokenSymbol}.`);
-            return { shouldExit: false };
-        }
-        
-        const sortedKlines = response.list.sort((a, b) => a.time - b.time);
-        const closes = sortedKlines.map(k => parseFloat(k.close));
-        
-        const rsiArr = calculateRSI(closes, rsiConf.period);
-        const bb = calculateBollingerBands(closes, bbConf.period, bbConf.multiplier);
-        const macd = calculateMACD(closes, macdConf.fast, macdConf.slow, macdConf.signal);
-        
-        const lastIdx = closes.length - 1;
-        const currentClose = closes[lastIdx];
-        
-        const closedIdx = lastIdx - 1;
-        const indicatorClose = closes[closedIdx];
-        const currentRsi = rsiArr[closedIdx];
-        const currentBbUpper = bb.upper[closedIdx];
-        const currentMacdHist = macd.histogram[closedIdx];
-        const prevMacdHist = macd.histogram[closedIdx - 1];
-        
-        if (currentRsi === null || currentBbUpper === null || currentMacdHist === null || prevMacdHist === null) {
-            return { shouldExit: false };
-        }
-        
         const durationHours = (Date.now() - position.timestamp) / 3600000;
         if (maxHoldHours > 0 && durationHours >= maxHoldHours) {
             console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Timeout hit (${durationHours.toFixed(2)}h >= ${maxHoldHours}h)`);
             return { shouldExit: true, reason: `Timeout hit (${durationHours.toFixed(2)}h >= ${maxHoldHours}h)` };
         }
 
-        if (position.entryPriceUsd) {
-            const pnlPercentage = ((currentClose - position.entryPriceUsd) / position.entryPriceUsd) * 100;
-            if (tpPercentage > 0 && pnlPercentage >= tpPercentage) {
-                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Take Profit hit (+${pnlPercentage.toFixed(2)}% >= ${tpPercentage}%)`);
-                return { shouldExit: true, reason: `Take Profit hit (+${pnlPercentage.toFixed(2)}% >= ${tpPercentage}%)` };
-            }
-            if (slPercentage > 0 && pnlPercentage <= -slPercentage) {
-                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Stop Loss hit (${pnlPercentage.toFixed(2)}% <= -${slPercentage}%)`);
-                return { shouldExit: true, reason: `Stop Loss hit (${pnlPercentage.toFixed(2)}% <= -${slPercentage}%)` };
-            }
-        }
-        
         const isOOR = position.activeBinId !== undefined && position.minBinId !== undefined && position.maxBinId !== undefined &&
                       (position.activeBinId < position.minBinId || position.activeBinId > position.maxBinId);
 
@@ -135,25 +85,80 @@ async function evaluateExitCondition(position) {
             }
             
             return { shouldExit: false };
-        } else {
-            const durationMinutes = (Date.now() - position.timestamp) / 60000;
-            if (durationMinutes < minHoldMinutes) {
-                return { shouldExit: false };
-            }
+        }
 
-            const rsiConditionMet = currentRsi > rsiConf.upperLimit;
-            const priceAboveBbUpper = indicatorClose > currentBbUpper;
-            const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
-            
-            if (rsiConditionMet && priceAboveBbUpper) {
-                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND Close > BB Upper`);
-                return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan Harga > BB Upper` };
+        const { stdout } = await spawnAsync('npx', [
+            'gmgn-cli', 'market', 'kline', 
+            '--chain', chain, 
+            '--address', position.tokenMint, 
+            '--resolution', '15m', 
+            '--from', fromTimestamp.toString(), 
+            '--raw'
+        ], {
+            env: { ...process.env, GMGN_API_KEY: apiKey }
+        });
+        const response = JSON.parse(stdout);
+        
+        let currentClose = null;
+        if (response.list && response.list.length > 0) {
+            const tempSortedKlines = [...response.list].sort((a, b) => a.time - b.time);
+            currentClose = parseFloat(tempSortedKlines[tempSortedKlines.length - 1].close);
+        }
+
+        if (position.entryPriceUsd && currentClose !== null) {
+            const pnlPercentage = ((currentClose - position.entryPriceUsd) / position.entryPriceUsd) * 100;
+            if (tpPercentage > 0 && pnlPercentage >= tpPercentage) {
+                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Take Profit hit (+${pnlPercentage.toFixed(2)}% >= ${tpPercentage}%)`);
+                return { shouldExit: true, reason: `Take Profit hit (+${pnlPercentage.toFixed(2)}% >= ${tpPercentage}%)` };
             }
-            
-            if (rsiConditionMet && macdFirstGreenHist) {
-                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND MACD First Green Histogram`);
-                return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan trigger MACD positif` };
+            if (slPercentage > 0 && pnlPercentage <= -slPercentage) {
+                console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Stop Loss hit (${pnlPercentage.toFixed(2)}% <= -${slPercentage}%)`);
+                return { shouldExit: true, reason: `Stop Loss hit (${pnlPercentage.toFixed(2)}% <= -${slPercentage}%)` };
             }
+        }
+        
+        const durationMinutes = (Date.now() - position.timestamp) / 60000;
+        if (durationMinutes < minHoldMinutes) {
+            return { shouldExit: false };
+        }
+        
+        if (!response.list || response.list.length < Math.max(rsiConf.period, bbConf.period, macdConf.slow) + 10) {
+            console.log(`Not enough kline data to evaluate technical indicators for ${position.tokenSymbol}.`);
+            return { shouldExit: false };
+        }
+        
+        const sortedKlines = response.list.sort((a, b) => a.time - b.time);
+        const closes = sortedKlines.map(k => parseFloat(k.close));
+        
+        const rsiArr = calculateRSI(closes, rsiConf.period);
+        const bb = calculateBollingerBands(closes, bbConf.period, bbConf.multiplier);
+        const macd = calculateMACD(closes, macdConf.fast, macdConf.slow, macdConf.signal);
+        
+        const lastIdx = closes.length - 1;
+        const closedIdx = lastIdx - 1;
+        
+        const indicatorClose = closes[closedIdx];
+        const currentRsi = rsiArr[closedIdx];
+        const currentBbUpper = bb.upper[closedIdx];
+        const currentMacdHist = macd.histogram[closedIdx];
+        const prevMacdHist = macd.histogram[closedIdx - 1];
+        
+        if (currentRsi === null || currentBbUpper === null || currentMacdHist === null || prevMacdHist === null) {
+            return { shouldExit: false };
+        }
+
+        const rsiConditionMet = currentRsi > rsiConf.upperLimit;
+        const priceAboveBbUpper = indicatorClose > currentBbUpper;
+        const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
+        
+        if (rsiConditionMet && priceAboveBbUpper) {
+            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND Close > BB Upper`);
+            return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan Harga > BB Upper` };
+        }
+        
+        if (rsiConditionMet && macdFirstGreenHist) {
+            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND MACD First Green Histogram`);
+            return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan trigger MACD positif` };
         }
         
     } catch (e) {
