@@ -157,12 +157,21 @@ async function runBot() {
 
             let index = 1;
             
+            const formatAge = (mins) => {
+                if (mins < 60) return `${mins}m`;
+                const h = Math.floor(mins / 60);
+                const m = mins % 60;
+                return `${h}h ${m}m`;
+            };
+            
             if (aiPositions.length > 0) {
                 msg += `*AI Positions*\n`;
                 aiPositions.forEach(pos => {
                     const ageMinutes = pos.timestamp ? Math.floor((Date.now() - pos.timestamp) / 60000) : 0;
                     const details = (meteoraDetails && ageMinutes >= 1) ? meteoraDetails[pos.positionPubKey] : null;
                     const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
+                    
+                    const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                     
                     msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
                     if (details) {
@@ -172,11 +181,13 @@ async function runBot() {
                         
                         msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
+                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     } else {
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     }
                     msg += `\n`;
                     index++;
@@ -190,6 +201,8 @@ async function runBot() {
                     const details = (meteoraDetails && ageMinutes >= 1) ? meteoraDetails[pos.positionPubKey] : null;
                     const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
                     
+                    const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
+                    
                     msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
@@ -198,11 +211,13 @@ async function runBot() {
                         
                         msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
+                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     } else {
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     }
                     msg += `\n`;
                     index++;
