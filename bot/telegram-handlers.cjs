@@ -87,6 +87,13 @@ async function sendPositionsCommand(ctx) {
 
             let index = 1;
             
+            const formatAge = (mins) => {
+                if (mins < 60) return `${mins}m`;
+                const h = Math.floor(mins / 60);
+                const m = mins % 60;
+                return `${h}h ${m}m`;
+            };
+            
             if (aiPositions.length > 0) {
                 msg += `*AI Positions*\n`;
                 aiPositions.forEach(pos => {
@@ -108,13 +115,13 @@ async function sendPositionsCommand(ctx) {
                             msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
                         if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     } else {
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     }
                     msg += `\n`;
@@ -143,13 +150,13 @@ async function sendPositionsCommand(ctx) {
                             msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
                         if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     } else {
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${ageMinutes}m | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
                     }
                     msg += `\n`;
