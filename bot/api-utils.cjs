@@ -28,6 +28,14 @@ function spawnAsync(command, args, options) {
 
 async function fetchWithRetry(url, options = {}, maxRetries = 3) {
     let attempt = 0;
+    
+    if (url.includes('jup.ag')) {
+        options.headers = options.headers || {};
+        if (process.env.JUPITER_API_KEY) {
+            options.headers['x-api-key'] = process.env.JUPITER_API_KEY;
+        }
+    }
+
     while (attempt < maxRetries) {
         try {
             const response = await _fetch(url, options);
@@ -45,8 +53,10 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3) {
             if (attempt >= maxRetries) {
                 throw new Error(`Failed to fetch ${url} after ${maxRetries} attempts: ${error.message}`);
             }
-            const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
-            console.log(`[API Retry] Fetch failed. Attempt ${attempt}/${maxRetries}. Retrying in ${delay}ms...`);
+            const baseDelay = Math.pow(2, attempt - 1) * 1000;
+            const jitter = Math.random() * 500;
+            const delay = Math.min(baseDelay + jitter, 10000); 
+            console.log(`[API Retry] Fetch failed. Attempt ${attempt}/${maxRetries}. Retrying in ${delay.toFixed(0)}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }

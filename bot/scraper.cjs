@@ -219,6 +219,14 @@ async function runScraper() {
             const isLiquidityBurnt = token.burn_status === "burn" || parseFloat(token.burn_ratio) >= 1;
 
             let passAdvancedFilters = true;
+            
+            const athMcap = parseFloat(token.history_highest_market_cap) || 0;
+            let athDropPercentage = 0;
+            if (athMcap > 0) {
+                athDropPercentage = ((athMcap - marketCap) / athMcap) * 100;
+            }
+            if (localFilters.maxAthDropPercentage !== undefined && athDropPercentage > localFilters.maxAthDropPercentage) passAdvancedFilters = false;
+
             if (localFilters.maxTop10Percentage !== undefined && top10Percentage > localFilters.maxTop10Percentage) passAdvancedFilters = false;
             if (localFilters.maxDevHoldsPercentage !== undefined && devHoldsPercentage > localFilters.maxDevHoldsPercentage) passAdvancedFilters = false;
             if (localFilters.maxInsiderPercentage !== undefined && insiderPercentage > localFilters.maxInsiderPercentage) passAdvancedFilters = false;
@@ -346,7 +354,21 @@ async function runScraper() {
                 
                 tgMsg += `💎 *${cleanName}* (${cleanSymbol})\n`;
                 tgMsg += `🔗 \`${t.address}\`\n`;
-                tgMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
+                
+                const tMcap = parseFloat(t.market_cap) || 0;
+                const tAthMcap = parseFloat(t.history_highest_market_cap) || 0;
+                let tAthDrop = 0;
+                if (tAthMcap > 0) tAthDrop = ((tAthMcap - tMcap) / tAthMcap) * 100;
+                const tPrice = parseFloat(t.price) || t.latestPrice || 0;
+                const tAthPrice = parseFloat(t.history_highest_price) || 0;
+
+                tgMsg += `💰 *MCap:* $${(tMcap / 1000).toFixed(1)}k | 👑 *ATH MCap:* $${(tAthMcap / 1000).toFixed(1)}k (🔻-${tAthDrop.toFixed(1)}%)\n`;
+                if (tAthPrice > 0) {
+                    tgMsg += `💲 *Price:* $${tPrice.toFixed(6)} | 👑 *ATH Price:* $${tAthPrice.toFixed(6)}\n`;
+                } else {
+                    tgMsg += `💲 *Price:* $${tPrice.toFixed(6)}\n`;
+                }
+                tgMsg += `👥 *Holders:* ${t.holder_count}\n`;
                 
                 let statsStr = `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k`;
                 if (t.latestSupertrend !== undefined) statsStr += ` | 📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}`;

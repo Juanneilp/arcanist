@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "integrating-jupiter": {
+      "source": "jup-ag/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/integrating-jupiter/SKILL.md",
+      "computedHash": "6dd469ab942b0f5c24300026d1ea9dbb677beb181e89b9bc07cb19fbaad25aa2"
+    },
+    "jupiter-lend": {
+      "source": "jup-ag/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/jupiter-lend/SKILL.md",
+      "computedHash": "7b321b83d4d9024462f97acf4d15b00435def355e5c83dbe5cd230e369112968"
+    },
+    "jupiter-swap-migration": {
+      "source": "jup-ag/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/jupiter-swap-migration/SKILL.md",
+      "computedHash": "2af9e8f615538f9248df2e06086621a228e2aed9de832dc3523c3a1e24ed92ef"
+    },
+    "jupiter-vrfd": {
+      "source": "jup-ag/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/jupiter-vrfd/SKILL.md",
+      "computedHash": "139a84a94e670ebb0944e7b5776e1a7bf4730092dc340d76a2ea446b2743923a"
+    }
+  }
+}

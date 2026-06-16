@@ -281,12 +281,17 @@ async function monitoringLoop(connection, walletKeypair) {
                 const balance = await getTokenBalance(connection, walletKeypair.publicKey, pos.tokenMint);
                 if (balance.uiAmount > 0) {
                     sendMessage(`🧹 Dust Sweeping: Found ${balance.uiAmount} ${pos.tokenSymbol}`);
-                    const swapResult = await swapTokenToSol(connection, walletKeypair, pos.tokenMint, balance.rawAmount, botMode);
-                    if (!swapResult.skipped) {
-                        reclaimedSol = swapResult.expectedSolOut;
-                        sendMessage(`✅ Swap Success! Reclaimed ~${swapResult.expectedSolOut.toFixed(4)} SOL`);
-                    } else {
-                        sendMessage(`ℹ️ Dust value too low (~$${swapResult.usdValue.toFixed(2)}). Skipped swap.`);
+                    try {
+                        const swapResult = await swapTokenToSol(connection, walletKeypair, pos.tokenMint, balance.rawAmount, botMode);
+                        if (!swapResult.skipped) {
+                            reclaimedSol = swapResult.expectedSolOut;
+                            sendMessage(`✅ Swap Success! Reclaimed ~${swapResult.expectedSolOut.toFixed(4)} SOL`);
+                        } else {
+                            sendMessage(`ℹ️ Dust value too low (~$${swapResult.usdValue.toFixed(2)}). Skipped swap.`);
+                        }
+                    } catch (swapErr) {
+                        console.error(`[Dust Sweep Error] Failed to swap ${pos.tokenSymbol}:`, swapErr.message);
+                        sendMessage(`⚠️ Dust Sweep Failed for ${pos.tokenSymbol}: ${swapErr.message}\nToken may not be routable on Jupiter yet.`);
                     }
                 }
 

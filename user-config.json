@@ -25,7 +25,8 @@
     "maxPhishingPercentage": 30,
     "maxBundlingPercentage": 60,
     "requireLiquidityBurnt": true,
-    "maxRugPercentage": 50
+    "maxRugPercentage": 50,
+    "maxAthDropPercentage": 60
   },
   "technicalFilters": {
     "supertrend": {

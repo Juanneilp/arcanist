@@ -3,84 +3,113 @@ const fs = require('fs');
 const path = require('path');
 const { fetchWithRetry, rpcRetryWrapper } = require('./api-utils.cjs');
 
-async function getQuote(inputMint, outputMint, amountLamports, slippageBps = 50) {
-    const url = `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountLamports}&slippageBps=${slippageBps}`;
+async function getJupiterOrder(inputMint, outputMint, amountLamports, takerPublicKey, slippageBps = 50) {
+    const params = new URLSearchParams({
+        inputMint,
+        outputMint,
+        amount: amountLamports.toString(),
+        taker: takerPublicKey.toString(),
+        slippageBps: slippageBps.toString()
+    });
+    
+    const url = `https://api.jup.ag/swap/v2/order?${params.toString()}`;
     const response = await fetchWithRetry(url);
+    
     if (!response.ok) {
-        throw new Error(`Jupiter Quote API Error: ${response.statusText}`);
+        let errorMsg = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMsg = errorData.error || errorMsg;
+        } catch (e) {}
+        throw new Error(`Jupiter Order API Error: ${errorMsg}`);
     }
-    const quoteResponse = await response.json();
-    return quoteResponse;
+    
+    const order = await response.json();
+    if (order.error) {
+        throw new Error(`Jupiter Order Error: ${order.error}`);
+    }
+    
+    return order;
 }
 
-async function getSwapTransaction(quoteResponse, walletPublicKey) {
-    const url = 'https://api.jup.ag/swap/v1/swap';
-    const response = await fetchWithRetry(url, {
+// Deprecated V1 mock for compatibility if required elsewhere
+async function getQuote(inputMint, outputMint, amountLamports, slippageBps = 50) {
+    const params = new URLSearchParams({
+        inputMint,
+        outputMint,
+        amount: amountLamports.toString(),
+        slippageBps: slippageBps.toString()
+    });
+    const url = `https://api.jup.ag/swap/v2/order?${params.toString()}`;
+    const response = await fetchWithRetry(url);
+    if (!response.ok) throw new Error(`Jupiter Quote API Error: ${response.statusText}`);
+    return await response.json();
+}
+
+async function executeSwap(connection, walletKeypair, order, mode = "dry_run") {
+    if (mode !== "live") {
+        console.log(`[DRY RUN] Simulating swap execution...`);
+        return { signature: "simulate_swap_txid_" + Date.now() };
+    }
+    
+    if (!order.transaction) {
+        throw new Error("Order has no transaction to sign (is taker set correctly, and do you have funds?).");
+    }
+
+    const swapTransactionBuf = Buffer.from(order.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(swapTransactionBuf);
+    
+    transaction.sign([walletKeypair]);
+    const signedTx = Buffer.from(transaction.serialize()).toString('base64');
+
+    const executeUrl = 'https://api.jup.ag/swap/v2/execute';
+    const response = await fetchWithRetry(executeUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            quoteResponse,
-            userPublicKey: walletPublicKey.toString(),
-            wrapAndUnwrapSol: true,
+            signedTransaction: signedTx,
+            requestId: order.requestId,
         })
     });
+    
     if (!response.ok) {
-        throw new Error(`Jupiter Swap API Error: ${response.statusText}`);
-    }
-    const { swapTransaction } = await response.json();
-    return swapTransaction;
-}
-
-async function executeSwap(connection, walletKeypair, swapTransactionBase64, mode = "dry_run") {
-    if (mode !== "live") {
-        console.log(`[DRY RUN] Simulating swap execution...`);
-        return "simulate_swap_txid_" + Date.now();
+        let errorMsg = response.statusText;
+        try {
+            const errorData = await response.json();
+            errorMsg = errorData.error || errorMsg;
+        } catch (e) {}
+        throw new Error(`Jupiter Execute API Error: ${errorMsg}`);
     }
     
-    const swapTransactionBuf = Buffer.from(swapTransactionBase64, 'base64');
-    var transaction = VersionedTransaction.deserialize(swapTransactionBuf);
+    const result = await response.json();
+    if (result.status === 'Success' || result.signature) {
+        return {
+            signature: result.signature,
+            inputAmount: result.inputAmountResult,
+            outputAmount: result.outputAmountResult
+        };
+    }
     
-    transaction.sign([walletKeypair]);
-
-    const latestBlockHash = await connection.getLatestBlockhash();
-    const rawTransaction = transaction.serialize();
-    
-    const txid = await rpcRetryWrapper(async () => {
-        return await connection.sendRawTransaction(rawTransaction, {
-            skipPreflight: true,
-            maxRetries: 2
-        });
-    });
-    
-    await rpcRetryWrapper(async () => {
-        await connection.confirmTransaction({
-            blockhash: latestBlockHash.blockhash,
-            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-            signature: txid
-        });
-    });
-    
-    return txid;
+    throw new Error(`Swap failed: ${result.error || 'unknown'}, Code: ${result.code}`);
 }
 
 async function swapSolToToken(connection, walletKeypair, tokenMint, solAmount, mode = "dry_run") {
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
     const amountLamports = Math.floor(solAmount * 1e9);
     
-    console.log(`Getting quote for swapping ${solAmount} SOL to ${tokenMint}...`);
-    const quoteResponse = await getQuote(WSOL_MINT, tokenMint, amountLamports);
+    console.log(`Getting order for swapping ${solAmount} SOL to ${tokenMint}...`);
+    const order = await getJupiterOrder(WSOL_MINT, tokenMint, amountLamports, walletKeypair.publicKey);
     
-    console.log(`Expected Output: ${quoteResponse.outAmount} (smallest units)`);
-    console.log(`Building swap transaction...`);
-    const swapTx = await getSwapTransaction(quoteResponse, walletKeypair.publicKey);
+    console.log(`Expected Output: ${order.outAmount} (smallest units)`);
     
-    console.log(`Executing swap transaction (${mode.toUpperCase()})...`);
-    const txid = await executeSwap(connection, walletKeypair, swapTx, mode);
+    console.log(`Executing swap transaction via Jupiter (${mode.toUpperCase()})...`);
+    const result = await executeSwap(connection, walletKeypair, order, mode);
+    const txid = result.signature || result; 
     console.log(`Swap successful! Transaction ID: ${txid}`);
     
     return {
         txid,
-        expectedOutAmount: quoteResponse.outAmount
+        expectedOutAmount: order.outAmount
     };
 }
 
@@ -105,10 +134,10 @@ async function getSolPriceUsd() {
 async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountRaw, mode = "dry_run") {
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
     
-    console.log(`Getting quote for swapping ${tokenAmountRaw} (raw units) of ${tokenMint} to SOL...`);
-    const quoteResponse = await getQuote(tokenMint, WSOL_MINT, tokenAmountRaw);
+    console.log(`Getting order for swapping ${tokenAmountRaw} (raw units) of ${tokenMint} to SOL...`);
+    const order = await getJupiterOrder(tokenMint, WSOL_MINT, tokenAmountRaw, walletKeypair.publicKey);
     
-    const expectedSolOut = quoteResponse.outAmount / 1e9;
+    const expectedSolOut = order.outAmount / 1e9;
     const solPrice = await getSolPriceUsd();
     const usdValue = expectedSolOut * solPrice;
     
@@ -119,10 +148,9 @@ async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountR
     const threshold = config.exitConfig?.minUsdDustValueToSwap || 0.5;
     
     if (usdValue >= threshold) {
-        console.log(`Value >= $${threshold}. Building swap transaction...`);
-        const swapTx = await getSwapTransaction(quoteResponse, walletKeypair.publicKey);
-        console.log(`Executing dust sweep swap (${mode.toUpperCase()})...`);
-        const txid = await executeSwap(connection, walletKeypair, swapTx, mode);
+        console.log(`Value >= $${threshold}. Executing dust sweep swap (${mode.toUpperCase()})...`);
+        const result = await executeSwap(connection, walletKeypair, order, mode);
+        const txid = result.signature || result;
         console.log(`Dust Sweep successful! Transaction ID: ${txid}`);
         return { txid, expectedSolOut, usdValue };
     } else {
@@ -132,8 +160,8 @@ async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountR
 }
 
 module.exports = {
+    getJupiterOrder,
     getQuote,
-    getSwapTransaction,
     executeSwap,
     swapSolToToken,
     swapTokenToSol,
