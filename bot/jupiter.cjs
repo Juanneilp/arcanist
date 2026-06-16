@@ -102,11 +102,11 @@ async function getSolPriceUsd() {
     return 150; 
 }
 
-async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountUi, mode = "dry_run") {
+async function swapTokenToSol(connection, walletKeypair, tokenMint, tokenAmountRaw, mode = "dry_run") {
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
     
-    console.log(`Getting quote for swapping ${tokenAmountUi} of ${tokenMint} to SOL...`);
-    const quoteResponse = await getQuote(tokenMint, WSOL_MINT, tokenAmountUi);
+    console.log(`Getting quote for swapping ${tokenAmountRaw} (raw units) of ${tokenMint} to SOL...`);
+    const quoteResponse = await getQuote(tokenMint, WSOL_MINT, tokenAmountRaw);
     
     const expectedSolOut = quoteResponse.outAmount / 1e9;
     const solPrice = await getSolPriceUsd();

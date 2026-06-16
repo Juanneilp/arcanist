@@ -16,12 +16,13 @@ async function getTokenBalance(connection, walletPubKey, tokenMintStr) {
             mint: new PublicKey(tokenMintStr)
         });
         if (tokenAccounts.value.length > 0) {
-            return tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount;
+            const tokenAmount = tokenAccounts.value[0].account.data.parsed.info.tokenAmount;
+            return { uiAmount: tokenAmount.uiAmount, rawAmount: tokenAmount.amount };
         }
     } catch (e) {
         console.error("Error fetching token balance:", e);
     }
-    return 0;
+    return { uiAmount: 0, rawAmount: "0" };
 }
 
 async function evaluateExitCondition(position) {
@@ -277,10 +278,10 @@ async function monitoringLoop(connection, walletKeypair) {
                 removePosition(pos.positionPubKey);
                 
                 let reclaimedSol = 0;
-                const balanceUi = await getTokenBalance(connection, walletKeypair.publicKey, pos.tokenMint);
-                if (balanceUi > 0) {
-                    sendMessage(`🧹 Dust Sweeping: Found ${balanceUi} ${pos.tokenSymbol}`);
-                    const swapResult = await swapTokenToSol(connection, walletKeypair, pos.tokenMint, balanceUi, botMode);
+                const balance = await getTokenBalance(connection, walletKeypair.publicKey, pos.tokenMint);
+                if (balance.uiAmount > 0) {
+                    sendMessage(`🧹 Dust Sweeping: Found ${balance.uiAmount} ${pos.tokenSymbol}`);
+                    const swapResult = await swapTokenToSol(connection, walletKeypair, pos.tokenMint, balance.rawAmount, botMode);
                     if (!swapResult.skipped) {
                         reclaimedSol = swapResult.expectedSolOut;
                         sendMessage(`✅ Swap Success! Reclaimed ~${swapResult.expectedSolOut.toFixed(4)} SOL`);
