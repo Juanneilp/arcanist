@@ -30,6 +30,24 @@ async function runBot() {
         process.exit(1);
     }
     const userConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    
+    const REQUIRED_CONFIG_KEYS = [
+        'botMode',
+        'apiSettings.chain',
+        'meteoraConfig.solPerPosition',
+        'exitConfig.tpPercentage'
+    ];
+    for (const keyPath of REQUIRED_CONFIG_KEYS) {
+        const keys = keyPath.split('.');
+        let current = userConfig;
+        for (const k of keys) {
+            if (current === undefined || !(k in current)) {
+                console.warn(`[Config Warning] Missing required key: ${keyPath}`);
+                break;
+            }
+            current = current[k];
+        }
+    }
     const botMode = userConfig.botMode || "dry_run";
 
     console.log(`Starting Arcanist DLMM Bot in ${botMode.toUpperCase()} mode...`);
@@ -354,3 +372,21 @@ async function runBot() {
 }
 
 runBot();
+
+// Health Check Endpoint
+const http = require('http');
+http.createServer((req, res) => {
+    try {
+        const state = readState();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            status: 'ok',
+            activePositions: state.length,
+            uptime: process.uptime(),
+            mode: botMode
+        }));
+    } catch(e) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ status: 'error', message: e.message }));
+    }
+}).listen(3001);

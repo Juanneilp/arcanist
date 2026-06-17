@@ -183,7 +183,11 @@ async function monitoringLoop(connection, walletKeypair) {
     const activePositions = readState();
     if (activePositions.length === 0) return;
     
-    console.log(`[Monitor] Checking ${activePositions.length} active positions...`);
+    const LOG_INTERVAL_MS = 5 * 60 * 1000;
+    if (!monitoringLoop._lastLogTime || Date.now() - monitoringLoop._lastLogTime > LOG_INTERVAL_MS) {
+        console.log(`[Monitor] Checking ${activePositions.length} active positions...`);
+        monitoringLoop._lastLogTime = Date.now();
+    }
     
     let DLMM;
     try {

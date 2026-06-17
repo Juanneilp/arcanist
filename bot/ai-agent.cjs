@@ -184,7 +184,14 @@ ${JSON.stringify(essentialCandidates, null, 2)}
                 let responseContent = await callOpenRouter(messages, model, baseUrl);
                 
                 responseContent = responseContent.replace(/```json/g, '').replace(/```/g, '').trim();
-                const selected = JSON.parse(responseContent);
+                let selected;
+                try {
+                    selected = JSON.parse(responseContent);
+                } catch (parseError) {
+                    console.error("AI JSON parse failed. Raw response:", responseContent.substring(0, 500));
+                    console.error("Parse error:", parseError.message);
+                    throw parseError;
+                }
                 
                 if (Array.isArray(selected) && selected.length > 0) {
                     for (const sel of selected) {
