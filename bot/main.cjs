@@ -173,7 +173,8 @@ async function runBot() {
                     
                     const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                     
-                    msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
+                    const safeSymbol = (pos.tokenSymbol || 'Unknown').replace(/[_*`\[\]]/g, '');
+                    msg += `${index}. 🤖 *${safeSymbol}-SOL*\n`;
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
@@ -183,11 +184,17 @@ async function runBot() {
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     } else {
                         msg += `   Invested: ${investedStr} SOL\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     }
                     msg += `\n`;
                     index++;
@@ -203,7 +210,8 @@ async function runBot() {
                     
                     const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                     
-                    msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
+                    const safeSymbol = (pos.tokenSymbol || 'Unknown').replace(/[_*`\[\]]/g, '');
+                    msg += `${index}. 👤 *${safeSymbol}/SOL* 🔒\n`;
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
@@ -213,11 +221,17 @@ async function runBot() {
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     } else {
                         msg += `   Invested: ${investedStr} SOL\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     }
                     msg += `\n`;
                     index++;

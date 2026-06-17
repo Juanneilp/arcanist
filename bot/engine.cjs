@@ -52,10 +52,11 @@ async function processCandidates(options = {}) {
         top3.forEach((t, index) => {
             const rankEmoji = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '💎';
             const cleanName = t.name ? t.name.replace(/[_*`\[\]]/g, '') : 'Unknown';
+            const cleanSymbol = t.symbol ? t.symbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
             const cleanReason = t.ai_reason ? t.ai_reason.replace(/[_*`\[\]]/g, '') : '';
             const activeFlag = t.is_active_position ? ' 🟢 *[ACTIVE]*' : '';
             
-            aiMsg += `${rankEmoji} *${cleanName}* (${t.symbol})${activeFlag}\n`;
+            aiMsg += `${rankEmoji} *${cleanName}* (${cleanSymbol})${activeFlag}\n`;
             aiMsg += `🔗 \`${t.address}\`\n`;
             aiMsg += `💰 *MCap:* $${(t.market_cap / 1000).toFixed(1)}k | 👥 *Holders:* ${t.holder_count}\n`;
             
@@ -157,18 +158,21 @@ async function processCandidates(options = {}) {
                     console.error(`Failed to fetch Jupiter price for ${token.symbol}:`, e.message);
                 }
                 
+                const cleanTokenSymbol = token.symbol ? token.symbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                const cleanAiReason = token.ai_reason ? token.ai_reason.replace(/[_*`\[\]]/g, '') : "Memenuhi syarat fundamental & Supertrend hijau";
+                
                 const newPos = {
                     positionPubKey: result.positionPubKey,
                     poolAddress: targetPool.address,
                     tokenMint: token.address,
-                    tokenSymbol: token.symbol,
+                    tokenSymbol: cleanTokenSymbol,
                     openedBy: "auto",
                     investedSol: solToDeploy,
                     entryBinPrice: result.activeBinPrice,
                     entryPriceUsd: entryPriceUsd,
                     minBinId: result.minBinId,
                     maxBinId: result.maxBinId,
-                    entryReason: token.ai_reason || "Memenuhi syarat fundamental & Supertrend hijau",
+                    entryReason: cleanAiReason,
                     closeMode: "auto"
                 };
                 
@@ -177,7 +181,7 @@ async function processCandidates(options = {}) {
                 deployedCount++;
                 
                 const timeStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
-                sendMessage(`🟢 *Position Opened* 🟢\nToken: ${token.symbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\`\n💡 *Reason:* ${newPos.entryReason}\n⏱ *Time:* ${timeStr}`);
+                sendMessage(`🟢 *Position Opened* 🟢\nToken: ${cleanTokenSymbol}\nPool: \`${targetPool.address}\`\nPosition: \`${result.positionPubKey}\`\n💡 *Reason:* _${newPos.entryReason}_\n⏱ *Time:* ${timeStr}`);
                 
             } catch (e) {
                 console.error(`Error processing ${token.symbol}:`, e.message);

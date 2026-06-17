@@ -101,7 +101,8 @@ async function sendPositionsCommand(ctx) {
                     const details = (meteoraDetails && ageMinutes >= 1) ? meteoraDetails[pos.positionPubKey] : null;
                     const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
                     
-                    msg += `${index}. 🤖 *${pos.tokenSymbol}-SOL*\n`;
+                    const safeSymbol = (pos.tokenSymbol || 'Unknown').replace(/[_*`\[\]]/g, '');
+                    msg += `${index}. 🤖 *${safeSymbol}-SOL*\n`;
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
@@ -117,12 +118,18 @@ async function sendPositionsCommand(ctx) {
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     } else {
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         msg += `   Invested: ${investedStr} SOL\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     }
                     msg += `\n`;
                     index++;
@@ -136,7 +143,8 @@ async function sendPositionsCommand(ctx) {
                     const details = (meteoraDetails && ageMinutes >= 1) ? meteoraDetails[pos.positionPubKey] : null;
                     const investedStr = typeof pos.investedSol === 'number' ? pos.investedSol.toFixed(4) : pos.investedSol;
                     
-                    msg += `${index}. 👤 *${pos.tokenSymbol}/SOL* 🔒\n`;
+                    const safeSymbol = (pos.tokenSymbol || 'Unknown').replace(/[_*`\[\]]/g, '');
+                    msg += `${index}. 👤 *${safeSymbol}/SOL* 🔒\n`;
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
@@ -152,12 +160,18 @@ async function sendPositionsCommand(ctx) {
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
                         msg += `   ${rangeStatus}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     } else {
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         msg += `   Invested: ${investedStr} SOL\n`;
                         msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
-                        if (pos.entryReason) msg += `   💡 Reason: _${pos.entryReason}_\n`;
+                        if (pos.entryReason) {
+                            const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
+                            msg += `   💡 Reason: _${safeReason}_\n`;
+                        }
                     }
                     msg += `\n`;
                     index++;
@@ -497,9 +511,11 @@ async function historyCommand(ctx) {
             const isEntry = trade.action === 'ENTRY';
             const emoji = isEntry ? '🟢' : '🔴';
             const actionText = isEntry ? 'ENTRY' : 'EXIT';
-            msg += `${idx + 1}. ${emoji} *${actionText}* - ${trade.tokenSymbol || 'Unknown'}\n`;
+            const safeSymbol = (trade.tokenSymbol || 'Unknown').replace(/[_*`\[\]]/g, '');
+            msg += `${idx + 1}. ${emoji} *${actionText}* - ${safeSymbol}\n`;
             if (trade.reason || trade.entryReason) {
-                msg += `   💡 Reason: _${trade.reason || trade.entryReason}_\n`;
+                const safeReason = (trade.reason || trade.entryReason).replace(/[_*`\[\]]/g, '');
+                msg += `   💡 Reason: _${safeReason}_\n`;
             }
             const date = new Date(trade.timestamp).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
             msg += `   ⏱ Time: ${date}\n`;

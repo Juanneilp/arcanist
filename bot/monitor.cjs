@@ -274,18 +274,23 @@ async function monitoringLoop(connection, walletKeypair) {
 
             console.log(`[Monitor] Exit condition met for position ${pos.positionPubKey}. Reason: ${exitData.reason}`);
             const timeStr = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB';
-            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${pos.tokenSymbol}\nReason: ${exitData.reason}${pnlMessageStr}\n⏱ *Time:* ${timeStr}`);
+            const cleanTokenSymbol = pos.tokenSymbol ? pos.tokenSymbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
+            const cleanReason = exitData.reason ? exitData.reason.replace(/[_*`\[\]]/g, '') : 'Unknown';
+            sendMessage(`🚨 *Closing Position* 🚨\nToken: ${cleanTokenSymbol}\nReason: _${cleanReason}_${pnlMessageStr}\n⏱ *Time:* ${timeStr}`);
             
             try {
                 await removeLiquidity(connection, walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
-                sendMessage(`✅ Liquidity Removed for ${pos.tokenSymbol}`);
+                sendMessage(`✅ Liquidity Removed for ${cleanTokenSymbol}`);
                 
                 removePosition(pos.positionPubKey);
+                
+                // Jeda 3 detik agar RPC Solana memiliki waktu untuk update state balance (menghindari Dust Sweep false alarm)
+                await new Promise(resolve => setTimeout(resolve, 3000));
                 
                 let reclaimedSol = 0;
                 const balance = await getTokenBalance(connection, walletKeypair.publicKey, pos.tokenMint);
                 if (balance.uiAmount > 0) {
-                    sendMessage(`🧹 Dust Sweeping: Found ${balance.uiAmount} ${pos.tokenSymbol}`);
+                    sendMessage(`🧹 Dust Sweeping: Found ${balance.uiAmount} ${cleanTokenSymbol}`);
                     try {
                         const swapResult = await swapTokenToSol(connection, walletKeypair, pos.tokenMint, balance.rawAmount, botMode);
                         if (!swapResult.skipped) {
@@ -295,8 +300,8 @@ async function monitoringLoop(connection, walletKeypair) {
                             sendMessage(`ℹ️ Dust value too low (~$${swapResult.usdValue.toFixed(2)}). Skipped swap.`);
                         }
                     } catch (swapErr) {
-                        console.error(`[Dust Sweep Error] Failed to swap ${pos.tokenSymbol}:`, swapErr.message);
-                        sendMessage(`⚠️ Dust Sweep Failed for ${pos.tokenSymbol}: ${swapErr.message}\nToken may not be routable on Jupiter yet.`);
+                        console.error(`[Dust Sweep Error] Failed to swap ${cleanTokenSymbol}:`, swapErr.message);
+                        sendMessage(`⚠️ Dust Sweep Failed for ${cleanTokenSymbol}: ${swapErr.message}\nToken may not be routable on Jupiter yet.`);
                     }
                 }
 
@@ -309,8 +314,9 @@ async function monitoringLoop(connection, walletKeypair) {
                     pnlSol: finalPnlSol
                 });
             } catch (e) {
+                const safeErrMsg = e.message.replace(/[_*`\[\]]/g, '');
                 console.error(`Error closing position ${pos.positionPubKey}:`, e);
-                sendMessage(`❌ *Error Closing Position* ${pos.tokenSymbol}: ${e.message}`);
+                sendMessage(`❌ *Error Closing Position* ${cleanTokenSymbol}: ${safeErrMsg}`);
             }
         }
     }
