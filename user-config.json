@@ -2,7 +2,10 @@
   "botMode": "live",
   "apiSettings": {
     "chain": "sol",
-    "platform": "Pump.fun",
+    "platform": [
+      "Pump.fun",
+      "pump_agent"
+    ],
     "interval": "24h",
     "limit": 100,
     "apiFilters": [

@@ -290,7 +290,22 @@ async function monitoringLoop(connection, walletKeypair) {
             sendMessage(`🚨 *Closing Position* 🚨\nToken: ${cleanTokenSymbol}\nReason: _${cleanReason}_${pnlMessageStr}\n⏱ *Time:* ${timeStr}`);
             
             try {
-                await removeLiquidity(connection, walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
+                const exitResult = await removeLiquidity(connection, walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
+                if (exitResult === "already_closed") {
+                    console.log(`[Monitor] Position ${pos.positionPubKey} already closed on-chain. Cleaning up state.`);
+                    removePosition(pos.positionPubKey);
+                    logTrade('EXIT', {
+                        ...pos,
+                        reason: "Position already closed on-chain (auto-cleanup)",
+                        reclaimedSol: 0,
+                        pnlUsd: finalPnlUsd,
+                        pnlPct: finalPnlPct,
+                        pnlSol: finalPnlSol
+                    });
+                    sendMessage(`ℹ️ Position ${cleanTokenSymbol} sudah closed on-chain. State dibersihkan.`);
+                    continue;
+                }
+                
                 sendMessage(`✅ Liquidity Removed for ${cleanTokenSymbol}`);
                 
                 removePosition(pos.positionPubKey);

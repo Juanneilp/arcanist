@@ -178,10 +178,22 @@ async function runScraper() {
             'gmgn-cli', 'market', 'trending', 
             '--chain', apiSettings.chain, 
             '--interval', apiSettings.interval, 
-            '--platform', apiSettings.platform, 
             '--limit', apiSettings.limit.toString()
         ];
         
+        if (apiSettings.platform) {
+            if (Array.isArray(apiSettings.platform)) {
+                apiSettings.platform.forEach(p => {
+                    args.push('--platform', p);
+                });
+            } else if (typeof apiSettings.platform === 'string') {
+                const platforms = apiSettings.platform.split(',').map(s => s.trim());
+                platforms.forEach(p => {
+                    args.push('--platform', p);
+                });
+            }
+        }
+
         if (apiSettings.apiFilters && Array.isArray(apiSettings.apiFilters)) {
             apiSettings.apiFilters.forEach(filter => {
                 args.push('--filter', filter);
@@ -314,7 +326,8 @@ async function runScraper() {
 
                 if (!passVT) continue;
 
-                console.log(`PASS (ST Hijau, Vol ${volumeTrendStatus}) - Price: $${latestPrice}`);
+                const volStr = vtConf.enabled ? `Vol ${volumeTrendStatus}` : '';
+                console.log(`PASS (ST Hijau${volStr ? ', ' + volStr : ''}) - Price: $${latestPrice}`);
                 if (stConf.enabled) token.latestSupertrend = latestSupertrend;
                 token.latestPrice = latestPrice;
                 if (vtConf.enabled) {

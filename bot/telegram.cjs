@@ -53,32 +53,43 @@ if (token && token !== 'your_telegram_bot_token') {
         console.error(`Ooops, encountered an error for ${ctx.updateType}`, err);
     });
 
-    bot.launch().then(() => {
-        console.log("Telegram Bot started with Telegraf!");
-        bot.telegram.setMyCommands([
-            { command: 'help', description: 'Show available commands' },
-            { command: 'positions', description: 'List active positions' },
-            { command: 'history', description: 'View trade history' },
-            { command: 'toggle_close', description: 'Toggle close mode per position' },
-            { command: 'open', description: 'Open position (/open <mint> [sol])' },
-            { command: 'close', description: 'Close position (/close <number>)' },
-            { command: 'close_all', description: 'Close all positions' },
-            { command: 'toggle_auto', description: 'Toggle Global Auto Entry/Close Mode' },
-            { command: 'scrape', description: 'Force run scraper and AI screening' },
-            { command: 'getconfig', description: 'View config (/getconfig [key])' },
-            { command: 'setconfig', description: 'Modify config (/setconfig <key> <value>)' },
-            { command: 'currency', description: 'Toggle PnL display currency' },
-            { command: 'chat', description: 'Chat with Hermes AI Analyst' },
-            { command: 'blacklist', description: 'Add token to blacklist' },
-            { command: 'unblacklist', description: 'Remove token from blacklist' }
-        ]).catch(e => console.error("Failed to set commands:", e.message));
-    }).catch((e) => {
-        console.error("Failed to launch Telegraf bot:", e.message);
-    });
+    async function launchBotWithRetry(maxRetries = 3) {
+        for (let i = 1; i <= maxRetries; i++) {
+            try {
+                await bot.launch();
+                console.log("Telegram Bot started with Telegraf!");
+                bot.telegram.setMyCommands([
+                    { command: 'help', description: 'Show available commands' },
+                    { command: 'positions', description: 'List active positions' },
+                    { command: 'history', description: 'View trade history' },
+                    { command: 'toggle_close', description: 'Toggle close mode per position' },
+                    { command: 'open', description: 'Open position (/open <mint> [sol])' },
+                    { command: 'close', description: 'Close position (/close <number>)' },
+                    { command: 'close_all', description: 'Close all positions' },
+                    { command: 'toggle_auto', description: 'Toggle Global Auto Entry/Close Mode' },
+                    { command: 'scrape', description: 'Force run scraper and AI screening' },
+                    { command: 'getconfig', description: 'View config (/getconfig [key])' },
+                    { command: 'setconfig', description: 'Modify config (/setconfig <key> <value>)' },
+                    { command: 'currency', description: 'Toggle PnL display currency' },
+                    { command: 'chat', description: 'Chat with Hermes AI Analyst' },
+                    { command: 'blacklist', description: 'Add token to blacklist' },
+                    { command: 'unblacklist', description: 'Remove token from blacklist' }
+                ]).catch(e => console.error("Failed to set commands:", e.message));
+                return;
+            } catch (e) {
+                console.error(`Failed to launch Telegraf bot (attempt ${i}/${maxRetries}):`, e.message);
+                if (i < maxRetries) {
+                    await new Promise(r => setTimeout(r, 5000 * i));
+                }
+            }
+        }
+        console.error("Telegram Bot failed to launch after all retries. Continuing without Telegram.");
+    }
+    launchBotWithRetry();
 
     // Enable graceful stop
-    process.once('SIGINT', () => bot.stop('SIGINT'));
-    process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    process.once('SIGINT', () => { try { bot.stop('SIGINT'); } catch(e) {} });
+    process.once('SIGTERM', () => { try { bot.stop('SIGTERM'); } catch(e) {} });
 } else {
     console.warn("Telegram Token missing or default. Telegram Bot disabled.");
 }

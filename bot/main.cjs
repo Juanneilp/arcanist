@@ -332,16 +332,21 @@ async function runBot() {
         if (currentActivePositions.length >= currentMaxPositions) {
             console.log(`[Startup] Active positions (${currentActivePositions.length}) reached max limit (${currentMaxPositions}). Skipping initial scraper.`);
         } else {
-            console.log(`[Startup] Running initial scrape and screening...`);
-            await runScraper();
-            await processCandidates({
-                autoEntry: autoEntry,
-                maxPositions: currentMaxPositions,
-                botConfig: botConfig,
-                connection: connection,
-                walletKeypair: walletKeypair,
-                botMode: botMode
-            });
+            isScraperRunning = true;
+            try {
+                console.log(`[Startup] Running initial scrape and screening...`);
+                await runScraper();
+                await processCandidates({
+                    autoEntry: autoEntry,
+                    maxPositions: currentMaxPositions,
+                    botConfig: botConfig,
+                    connection: connection,
+                    walletKeypair: walletKeypair,
+                    botMode: botMode
+                });
+            } finally {
+                isScraperRunning = false;
+            }
         }
     } catch (e) {
         console.error('[Startup Error]:', e);

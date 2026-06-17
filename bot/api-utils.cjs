@@ -7,13 +7,15 @@ function spawnAsync(command, args, options) {
         const child = spawn(command, args, options);
         let stdout = '';
         let stderr = '';
-        
+
         child.stdout.on('data', (data) => stdout += data.toString());
         child.stderr.on('data', (data) => stderr += data.toString());
-        
-        child.on('close', (code) => {
+
+        child.on('close', (code, signal) => {
             if (code === 0) {
                 resolve({ stdout, stderr });
+            } else if (code === null && signal) {
+                reject(new Error(`Command killed by signal ${signal}`));
             } else {
                 const err = new Error(`Command failed with code ${code}`);
                 err.stdout = stdout;
@@ -21,14 +23,14 @@ function spawnAsync(command, args, options) {
                 reject(err);
             }
         });
-        
+
         child.on('error', (err) => reject(err));
     });
 }
 
 async function fetchWithRetry(url, options = {}, maxRetries = 3) {
     let attempt = 0;
-    
+
     if (url.includes('jup.ag')) {
         options.headers = options.headers || {};
         if (process.env.JUPITER_API_KEY) {
@@ -55,7 +57,7 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3) {
             }
             const baseDelay = Math.pow(2, attempt - 1) * 1000;
             const jitter = Math.random() * 500;
-            const delay = Math.min(baseDelay + jitter, 10000); 
+            const delay = Math.min(baseDelay + jitter, 10000);
             console.log(`[API Retry] Fetch failed. Attempt ${attempt}/${maxRetries}. Retrying in ${delay.toFixed(0)}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
@@ -63,18 +65,28 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3) {
 }
 
 async function rpcRetryWrapper(operation, maxRetries = 3) {
+    const NON_RETRYABLE_ERRORS = [
+        'AccountOwnedByWrongProgram',
+        'InsufficientFundsForRent',
+        'custom program error: 0xbbf',
+        '3007'
+    ];
     let attempt = 0;
     while (attempt < maxRetries) {
         try {
             return await operation();
         } catch (error) {
+            const isNonRetryable = NON_RETRYABLE_ERRORS.some(e => error.message && error.message.includes(e));
+            if (isNonRetryable) {
+                throw error;
+            }
             attempt++;
             if (attempt >= maxRetries) {
                 throw new Error(`RPC operation failed after ${maxRetries} attempts: ${error.message}`);
             }
-            
+
             console.log(`[RPC Retry] Operation failed: ${error.message}`);
-            const delay = Math.pow(2, attempt - 1) * 1000; 
+            const delay = Math.pow(2, attempt - 1) * 1000;
             console.log(`[RPC Retry] Attempt ${attempt}/${maxRetries}. Retrying in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
