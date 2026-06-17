@@ -370,13 +370,13 @@ async function runScraper() {
                 }
                 tgMsg += `👥 *Holders:* ${t.holder_count}\n`;
                 
-                let statsStr = `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k`;
+                let statsStr = `📈 *Vol:* $${(t.volume / 1000).toFixed(1)}k | 🧠 *Degens:* ${t.smart_degen_count || 0}`;
                 if (t.latestSupertrend !== undefined) statsStr += ` | 📊 *ST:* ${Number(t.latestSupertrend).toFixed(6)}`;
                 if (t.volumeTrend !== undefined) statsStr += ` | 🌊 *Vol Trend:* ${t.volumeTrend} (${t.volumeChangePercent.toFixed(1)}%)`;
                 if (t.is_new_ath) statsStr += `\n🚀 *STATUS: NEW ATH DETECTED*`;
                 tgMsg += `${statsStr}\n`;
                 
-                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k & Advanced Security Filters`;
+                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k & Degens >= ${localFilters.minSmartDegenCount} & Advanced Security Filters`;
                 if (techFilters.supertrend?.enabled) reasonStr += `, Supertrend Hijau`;
                 if (techFilters.volumeTrend?.enabled) reasonStr += `, Vol Trend tidak Decelerating`;
                 tgMsg += `💡 *Reason:* _${reasonStr}_\n\n`;

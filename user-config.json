@@ -13,7 +13,7 @@
     ]
   },
   "localFilters": {
-    "minMarketCap": 250000,
+    "minMarketCap": 300000,
     "minVolume24h": 1000000,
     "minTotalFees": 50,
     "minSmartDegenCount": 5,
@@ -26,7 +26,7 @@
     "maxBundlingPercentage": 60,
     "requireLiquidityBurnt": true,
     "maxRugPercentage": 50,
-    "maxAthDropPercentage": 60
+    "maxAthDropPercentage": 50
   },
   "technicalFilters": {
     "supertrend": {
@@ -43,7 +43,7 @@
     }
   },
   "meteoraConfig": {
-    "solPerPosition": 0.2,
+    "solPerPosition": 0.3,
     "minSolToOpen": 0.21,
     "allowedQuoteTokens": [
       "SOL"
