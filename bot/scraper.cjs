@@ -360,7 +360,8 @@ async function runScraper() {
             let logMsg = `[+] Scraper found ${finalTokens.length} candidates:\n`;
             let tgMsg = `🔍 *GMGN Scraper Results: ${finalTokens.length} Tokens* 🔍\n━━━━━━━━━━━━━━━━━━\n`;
             finalTokens.forEach(t => {
-                logMsg += `- ${t.symbol} (${t.address}) ST: ${t.latestSupertrend || 'N/A'}, Vol: ${t.volumeTrend || 'N/A'}\n`;
+                const volInfo = t.volumeTrend ? `, Vol: ${t.volumeTrend}` : '';
+                logMsg += `- ${t.symbol} (${t.address}) ST: ${t.latestSupertrend || 'N/A'}${volInfo}\n`;
                 
                 const cleanName = t.name ? t.name.replace(/[_*`\[\]]/g, '') : 'Unknown';
                 const cleanSymbol = t.symbol ? t.symbol.replace(/[_*`\[\]]/g, '') : 'Unknown';

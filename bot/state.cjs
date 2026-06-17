@@ -26,7 +26,7 @@ const lockfile = require('proper-lockfile');
 function addPosition(positionObj) {
     let release;
     try {
-        if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { retries: 5 });
+        if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { stale: 5000 });
         const state = readState();
         state.push({
             ...positionObj,
@@ -43,7 +43,7 @@ function addPosition(positionObj) {
 function removePosition(positionPubKey) {
     let release;
     try {
-        if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { retries: 5 });
+        if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { stale: 5000 });
         const state = readState();
         const newState = state.filter(p => p.positionPubKey !== positionPubKey);
         saveState(newState);
@@ -57,7 +57,7 @@ function removePosition(positionPubKey) {
 function updatePosition(positionPubKey, updateData) {
     let release;
     try {
-        if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { retries: 5 });
+        if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { stale: 5000 });
         const state = readState();
         const idx = state.findIndex(p => p.positionPubKey === positionPubKey);
         if (idx !== -1) {
@@ -74,7 +74,7 @@ function updatePosition(positionPubKey, updateData) {
 function logTrade(action, positionData) {
     let release;
     try {
-        if (fs.existsSync(TRADE_LOG_FILE)) release = lockfile.lockSync(TRADE_LOG_FILE, { retries: 5 });
+        if (fs.existsSync(TRADE_LOG_FILE)) release = lockfile.lockSync(TRADE_LOG_FILE, { stale: 5000 });
         let history = [];
         if (fs.existsSync(TRADE_LOG_FILE)) {
             try {
