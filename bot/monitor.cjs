@@ -194,6 +194,17 @@ async function monitoringLoop(connection, walletKeypair) {
         const posCloseMode = pos.closeMode || "auto";
         if (posCloseMode === "manual") continue;
         
+        try {
+            const posAccountInfo = await connection.getAccountInfo(new PublicKey(pos.positionPubKey));
+            if (!posAccountInfo || posAccountInfo.owner.toBase58() === "11111111111111111111111111111111") {
+                console.log(`[Monitor] Position ${pos.positionPubKey} not found or already closed on-chain. Removing from state.`);
+                removePosition(pos.positionPubKey);
+                continue;
+            }
+        } catch (e) {
+            console.error(`[Monitor] Failed to verify position account ${pos.positionPubKey}:`, e.message);
+        }
+        
         if (DLMM) {
             if (!dlmmPoolCache[pos.poolAddress]) {
                 try {

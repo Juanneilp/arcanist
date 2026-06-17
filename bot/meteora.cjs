@@ -271,6 +271,12 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
             let tokenBalanceLamports = new BN(0);
             
             try {
+                const posAccountInfo = await connection.getAccountInfo(positionPubKey);
+                if (!posAccountInfo || posAccountInfo.owner.toBase58() === "11111111111111111111111111111111") {
+                    console.log(`[LIVE] Position account ${positionPubKeyStr} not found or already closed. Skipping removeLiquidity.`);
+                    return "already_closed";
+                }
+                
                 const positionData = await dlmmPool.getPosition(positionPubKey);
                 if (positionData && positionData.positionData) {
                     const pd = positionData.positionData;
