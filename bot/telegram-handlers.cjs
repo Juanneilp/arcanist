@@ -238,7 +238,20 @@ async function openCommand(ctx) {
             return ctx.reply(`❌ No active DLMM pools found for ${tokenMint}.`);
         }
         
-        const bestPool = pools[0];
+        const minBinStep = config.meteoraConfig?.minBinStep || 0;
+        const maxBinStep = config.meteoraConfig?.maxBinStep || 1000;
+        const filteredPools = pools.filter(p => p.bin_step >= minBinStep && p.bin_step <= maxBinStep);
+        
+        if (filteredPools.length === 0) {
+            return ctx.reply(`❌ No active DLMM pools found within bin step limits (${minBinStep}-${maxBinStep}) for ${tokenMint}.`);
+        }
+        
+        const bestPool = filteredPools.sort((a, b) => {
+            if (b.avg_fees_per_min !== a.avg_fees_per_min) {
+                return (b.avg_fees_per_min || 0) - (a.avg_fees_per_min || 0);
+            }
+            return (b.liquidity || 0) - (a.liquidity || 0);
+        })[0];
         let poolInfo = `✅ *Pool Found!*\n`;
         poolInfo += `• *Name*: ${bestPool.name || 'Unknown'}\n`;
         poolInfo += `• *Address*: \`${bestPool.poolAddress}\`\n`;

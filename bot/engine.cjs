@@ -131,7 +131,12 @@ async function processCandidates(options = {}) {
                     continue;
                 }
                 
-                const targetPool = filteredPools.sort((a, b) => b.liquidity - a.liquidity)[0];
+                const targetPool = filteredPools.sort((a, b) => {
+                    if (b.avg_fees_per_min !== a.avg_fees_per_min) {
+                        return (b.avg_fees_per_min || 0) - (a.avg_fees_per_min || 0);
+                    }
+                    return (b.liquidity || 0) - (a.liquidity || 0);
+                })[0];
                 const solLamportsToLP = Math.floor(solToDeploy * 1e9);
                 
                 console.log(`[${botMode.toUpperCase()}] Adding Single-Sided SOL Liquidity to ${targetPool.address} (Bin Step: ${targetPool.bin_step})...`);

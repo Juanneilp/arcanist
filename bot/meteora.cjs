@@ -18,17 +18,22 @@ async function fetchMeteoraPools(query, allowedQuoteTokens = []) {
         const data = await res.json();
         const pools = (Array.isArray(data) ? data : data.data || []);
         
-        let matchingPools = pools.map(p => ({
-            address: p.address || p.pool_address,
-            poolAddress: p.address || p.pool_address,
-            name: p.name,
-            bin_step: p.bin_step ?? p.dlmm_params?.bin_step ?? p.pool_config?.bin_step,
-            liquidity: p.liquidity ?? p.tvl,
-            mint_x: p.mint_x ?? p.token_x?.address,
-            mint_y: p.mint_y ?? p.token_y?.address,
-            symbol_x: p.mint_x_symbol ?? p.token_x?.symbol,
-            symbol_y: p.mint_y_symbol ?? p.token_y?.symbol,
-        }));
+        let matchingPools = pools.map(p => {
+            const fees_1h = p.fees ? parseFloat(p.fees["1h"] || 0) : 0;
+            return {
+                address: p.address || p.pool_address,
+                poolAddress: p.address || p.pool_address,
+                name: p.name,
+                bin_step: p.bin_step ?? p.dlmm_params?.bin_step ?? p.pool_config?.bin_step,
+                liquidity: p.liquidity ?? p.tvl,
+                mint_x: p.mint_x ?? p.token_x?.address,
+                mint_y: p.mint_y ?? p.token_y?.address,
+                symbol_x: p.mint_x_symbol ?? p.token_x?.symbol,
+                symbol_y: p.mint_y_symbol ?? p.token_y?.symbol,
+                fees_1h: fees_1h,
+                avg_fees_per_min: fees_1h / 60
+            };
+        });
         
         if (allowedQuoteTokens && Array.isArray(allowedQuoteTokens) && allowedQuoteTokens.length > 0) {
             matchingPools = matchingPools.filter(p => 
