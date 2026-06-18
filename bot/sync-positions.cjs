@@ -124,6 +124,7 @@ async function syncManualPositions(connection, walletKeypair) {
                     tokenMint: tokenMintStr,
                     tokenSymbol: tokenSymbol,
                     openedBy: "manual",
+                    closeMode: "manual",
                     investedSol: investedSol,
                     entryBinPrice: activeBin.price,
                     entryPriceUsd: entryPriceUsd,

@@ -33,14 +33,16 @@ async function processCandidates(options = {}) {
     console.log(`Loaded ${candidates.length} candidate(s) from JSON.`);
     
     const activePositions = readState();
-    const activeMints = activePositions.map(p => p.tokenMint);
+    // De-duplicate by positionPubKey for accurate slot counting
+    const uniquePositions = [...new Map(activePositions.map(p => [p.positionPubKey, p])).values()];
+    const activeMints = uniquePositions.map(p => p.tokenMint);
     
     candidates.forEach(c => {
         c.is_active_position = activeMints.includes(c.address);
     });
     
-    const availableSlots = autoEntry ? (maxPositions - activePositions.length) : maxPositions;
-    const requestedAiLimit = Math.max(3, availableSlots + activePositions.length);
+    const availableSlots = autoEntry ? (maxPositions - uniquePositions.length) : maxPositions;
+    const requestedAiLimit = Math.max(3, availableSlots + uniquePositions.length);
     
     if (candidates.length > 0) {
         sendMessage(`🔍 Found ${candidates.length} candidates. Requesting Hermes AI screening...`);
@@ -141,6 +143,14 @@ async function processCandidates(options = {}) {
                 
                 console.log(`[${botMode.toUpperCase()}] Adding Single-Sided SOL Liquidity to ${targetPool.address} (Bin Step: ${targetPool.bin_step})...`);
                 const result = await addLiquidity(connection, walletKeypair, targetPool.address, WSOL_MINT, solLamportsToLP, botConfig.minRange, botConfig.maxRange, { type: botConfig.strategyType }, botMode);
+                
+                // Guard: Check if deploy was skipped due to non-refundable cost
+                if (result && result.status === "skipped") {
+                    const cleanSymbol = token.symbol ? token.symbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                    console.log(`[Skip] ${token.symbol}: Deploy skipped - ${result.reason}. Cost: ${result.cost} SOL`);
+                    sendMessage(`⚠️ *Deploy Skipped: ${cleanSymbol}*\nReason: Non-refundable binArray cost detected!\nCost: ~${result.cost?.toFixed(4) || '?'} SOL (${result.binArrayCount || '?'} binArrays)\nPool: \`${targetPool.address}\``);
+                    continue;
+                }
                 
                 if (botMode === "dry_run") {
                     sendMessage(`ℹ️ *DRY RUN: Entry Skipped*\nToken: ${token.symbol}\nPool: \`${targetPool.address}\``);

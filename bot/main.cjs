@@ -119,7 +119,15 @@ async function runBot() {
     if (reportIntervalMinutes < 1) reportCronExpression = `* * * * *`;
     
     async function sendDashboardReport() {
-        let currentActivePositions = readState();
+        let rawPositions = readState();
+        // De-duplicate by positionPubKey (prefer auto over manual)
+        const posMap = new Map();
+        rawPositions.forEach(p => {
+            if (!posMap.has(p.positionPubKey) || p.openedBy === 'auto') {
+                posMap.set(p.positionPubKey, p);
+            }
+        });
+        let currentActivePositions = [...posMap.values()];
         
         let meteoraDetails = null;
         let solBalance = 0;
@@ -301,10 +309,12 @@ async function runBot() {
             }
             
             const currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || 2;
-            const currentActivePositions = readState();
+            const rawActivePositions = readState();
+            // De-duplicate by positionPubKey for accurate slot counting
+            const uniqueActive = [...new Map(rawActivePositions.map(p => [p.positionPubKey, p])).values()];
             
-            if (currentActivePositions.length >= currentMaxPositions) {
-                console.log(`[Scraper] Active positions (${currentActivePositions.length}) reached max limit (${currentMaxPositions}). Skipping scraper.`);
+            if (uniqueActive.length >= currentMaxPositions) {
+                console.log(`[Scraper] Active positions (${uniqueActive.length}) reached max limit (${currentMaxPositions}). Skipping scraper.`);
                 return;
             }
             
@@ -346,9 +356,11 @@ async function runBot() {
             currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || maxPositions;
         } catch(e) {}
         
-        const currentActivePositions = readState();
-        if (currentActivePositions.length >= currentMaxPositions) {
-            console.log(`[Startup] Active positions (${currentActivePositions.length}) reached max limit (${currentMaxPositions}). Skipping initial scraper.`);
+        const rawStartupPositions = readState();
+        // De-duplicate by positionPubKey for accurate slot counting
+        const uniqueStartup = [...new Map(rawStartupPositions.map(p => [p.positionPubKey, p])).values()];
+        if (uniqueStartup.length >= currentMaxPositions) {
+            console.log(`[Startup] Active positions (${uniqueStartup.length}) reached max limit (${currentMaxPositions}). Skipping initial scraper.`);
         } else {
             isScraperRunning = true;
             try {

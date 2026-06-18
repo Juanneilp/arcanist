@@ -111,21 +111,35 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
             }
         });
 
-        const binArrayCost = quote.binArrayCost || 0;
-        const positionCost = quote.positionCost || 0;
-        const positionReallocCost = quote.positionReallocCost || 0;
+        // SDK may return BN (lamports) or plain number (SOL) — normalize to number (SOL)
+        function toSolValue(val) {
+            if (val === undefined || val === null) return 0;
+            if (BN.isBN(val)) return val.toNumber() / 1e9;
+            if (typeof val === 'number') return val;
+            if (typeof val === 'string') return parseFloat(val) || 0;
+            return 0;
+        }
 
-        console.log(`[QUOTE] Position cost (refundable): ${positionCost} SOL`);
-        console.log(`[QUOTE] Position realloc cost (refundable): ${positionReallocCost} SOL`);
-        console.log(`[QUOTE] Bin array cost (NON-refundable): ${binArrayCost} SOL`);
-        console.log(`[QUOTE] Bin array count: ${quote.binArraysCount}`);
+        const binArrayCostSol = toSolValue(quote.binArrayCost);
+        const binArrayCount = quote.binArrayCount ?? quote.binArraysCount ?? 0;
+        const positionRentSol = toSolValue(quote.positionRent || quote.positionCost);
+        const reallocCostSol = toSolValue(quote.reallocCost || quote.positionReallocCost);
+        const bitmapExtCostSol = toSolValue(quote.bitmapExtensionCost);
 
-        if (binArrayCost > 0) {
-            console.log(`[SKIP] Skipping deploy: Non-refundable binArray cost detected! Cost: ${binArrayCost} SOL`);
+        console.log(`[QUOTE] Position count: ${quote.positionCount ?? 1}`);
+        console.log(`[QUOTE] Position rent (refundable): ${positionRentSol.toFixed(6)} SOL`);
+        console.log(`[QUOTE] Realloc cost (refundable): ${reallocCostSol.toFixed(6)} SOL`);
+        console.log(`[QUOTE] Bitmap ext cost (refundable): ${bitmapExtCostSol.toFixed(6)} SOL`);
+        console.log(`[QUOTE] BinArray count (NON-refundable): ${binArrayCount}`);
+        console.log(`[QUOTE] BinArray cost (NON-refundable): ${binArrayCostSol.toFixed(6)} SOL`);
+
+        if (binArrayCount > 0 || binArrayCostSol > 0) {
+            console.log(`[SKIP] Skipping deploy: Non-refundable binArray cost detected! ${binArrayCount} binArray(s) = ~${binArrayCostSol.toFixed(4)} SOL`);
             return {
                 status: "skipped",
                 reason: "non_refundable_cost",
-                cost: binArrayCost
+                binArrayCount: binArrayCount,
+                cost: binArrayCostSol
             };
         }
         console.log(`[QUOTE] Safe to deploy! No non-refundable cost.`);

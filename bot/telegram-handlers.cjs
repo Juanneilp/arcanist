@@ -42,7 +42,15 @@ async function sendPositionsCommand(ctx) {
     try {
         const { readState } = require('./state.cjs');
         const { fetchMeteoraPositionDetails } = require('./solana-dex.cjs');
-        let currentActivePositions = readState();
+        let rawPositions = readState();
+        // De-duplicate by positionPubKey (prefer auto over manual)
+        const posMap = new Map();
+        rawPositions.forEach(p => {
+            if (!posMap.has(p.positionPubKey) || p.openedBy === 'auto') {
+                posMap.set(p.positionPubKey, p);
+            }
+        });
+        let currentActivePositions = [...posMap.values()];
         
         let meteoraDetails = null;
         let walletAddress = null;
@@ -263,7 +271,7 @@ async function openCommand(ctx) {
         const solLamports = Math.floor(solToDeploy * 1e9);
         const solMint = 'So11111111111111111111111111111111111111112';
 
-        const positionPubKeyStr = await addLiquidity(
+        const positionResult = await addLiquidity(
             solCtx.connection, 
             solCtx.walletKeypair, 
             bestPool.poolAddress, 
@@ -275,8 +283,13 @@ async function openCommand(ctx) {
             botMode
         );
         
-        if (positionPubKeyStr) {
-            const posPubKey = typeof positionPubKeyStr === 'string' ? positionPubKeyStr : (positionPubKeyStr.positionPubKey || positionPubKeyStr.status || "Unknown");
+        // Guard: Check if deploy was skipped due to non-refundable cost
+        if (positionResult && positionResult.status === "skipped") {
+            return ctx.reply(`⚠️ *Deploy Skipped!*\nReason: Non-refundable binArray cost detected!\nCost: ~${positionResult.cost?.toFixed(4) || '?'} SOL (${positionResult.binArrayCount || '?'} binArrays)\n\nTunggu hingga bin range ini sudah diinisialisasi oleh LP lain, atau pilih range yang lebih sempit.`, { parse_mode: 'Markdown' });
+        }
+        
+        if (positionResult) {
+            const posPubKey = typeof positionResult === 'string' ? positionResult : (positionResult.positionPubKey || positionResult.status || "Unknown");
             const tokenSymbol = bestPool.symbol_x && bestPool.symbol_y ? `${bestPool.symbol_x}-${bestPool.symbol_y}` : "MANUAL_ENTRY";
             addPosition({
                 tokenMint: tokenMint,
@@ -327,7 +340,15 @@ async function closeCommand(ctx) {
         const { readState, removePosition, logTrade } = require('./state.cjs');
         const { removeLiquidity } = require('./solana-dex.cjs');
         
-        const currentActivePositions = readState();
+        const rawPositions = readState();
+        // De-duplicate by positionPubKey to match display order
+        const dedup = new Map();
+        rawPositions.forEach(p => {
+            if (!dedup.has(p.positionPubKey) || p.openedBy === 'auto') {
+                dedup.set(p.positionPubKey, p);
+            }
+        });
+        const currentActivePositions = [...dedup.values()];
         const aiPositions = currentActivePositions.filter(p => p.openedBy === "auto");
         const manualPositions = currentActivePositions.filter(p => p.openedBy === "manual");
         const combined = [...aiPositions, ...manualPositions];
@@ -392,7 +413,14 @@ async function closeAllCommand(ctx) {
     try {
         const { readState } = require('./state.cjs');
         
-        const positions = readState();
+        const rawPositions = readState();
+        // De-duplicate by positionPubKey for accurate count
+        const seen = new Set();
+        const positions = rawPositions.filter(p => {
+            if (seen.has(p.positionPubKey)) return false;
+            seen.add(p.positionPubKey);
+            return true;
+        });
         if (positions.length === 0) return ctx.reply("❌ No active positions to close.");
         
         const configPath = path.join(__dirname, '..', 'user-config.json');
@@ -430,8 +458,16 @@ async function confirmCloseAllAction(ctx) {
         const { readState, removePosition, logTrade } = require('./state.cjs');
         const { removeLiquidity } = require('./solana-dex.cjs');
         
-        const positions = readState();
-        if (positions.length === 0) return ctx.reply("❌ No active positions to close.");
+        const rawPositions = readState();
+        if (rawPositions.length === 0) return ctx.reply("❌ No active positions to close.");
+        
+        // De-duplicate by positionPubKey to prevent closing same on-chain position twice
+        const seenKeys = new Set();
+        const positions = rawPositions.filter(p => {
+            if (seenKeys.has(p.positionPubKey)) return false;
+            seenKeys.add(p.positionPubKey);
+            return true;
+        });
         
         const solCtx = setupSolanaContext();
         if (!solCtx) return ctx.reply("❌ Wallet not configured.");
@@ -444,8 +480,10 @@ async function confirmCloseAllAction(ctx) {
         
         ctx.reply(`⏳ Closing ${positions.length} positions in ${botMode.toUpperCase()} mode...`);
         
+        const closedPubKeys = new Set();
         for (let i = 0; i < positions.length; i++) {
             const pos = positions[i];
+            if (closedPubKeys.has(pos.positionPubKey)) continue;
             ctx.reply(`⏳ Closing ${i+1}/${positions.length}: ${pos.tokenSymbol}...`);
             try {
                 let finalPnlUsd, finalPnlPct, finalPnlSol;
@@ -463,6 +501,7 @@ async function confirmCloseAllAction(ctx) {
                 
                 await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
                 removePosition(pos.positionPubKey);
+                closedPubKeys.add(pos.positionPubKey);
                 logTrade('EXIT', { ...pos, reason: "Manual close_all from Telegram", pnlUsd: finalPnlUsd, pnlPct: finalPnlPct, pnlSol: finalPnlSol });
                 
                 let pnlMsg = "";
@@ -566,7 +605,15 @@ async function toggleCloseCommand(ctx) {
         const index = parseInt(parts[1], 10) - 1;
         
         const { readState, updatePosition } = require('./state.cjs');
-        const currentActivePositions = readState();
+        const rawPositions = readState();
+        // De-duplicate by positionPubKey to match display order
+        const dedup = new Map();
+        rawPositions.forEach(p => {
+            if (!dedup.has(p.positionPubKey) || p.openedBy === 'auto') {
+                dedup.set(p.positionPubKey, p);
+            }
+        });
+        const currentActivePositions = [...dedup.values()];
         
         const aiPositions = currentActivePositions.filter(p => p.openedBy === "auto");
         const manualPositions = currentActivePositions.filter(p => p.openedBy === "manual");

@@ -28,6 +28,21 @@ function addPosition(positionObj) {
     try {
         if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { stale: 5000 });
         const state = readState();
+        
+        // GUARD: Prevent duplicate positionPubKey
+        const existingIdx = state.findIndex(p => p.positionPubKey === positionObj.positionPubKey);
+        if (existingIdx !== -1) {
+            // If existing is manual and new is auto, upgrade to auto (preserve AI reason & data)
+            if (state[existingIdx].openedBy === 'manual' && positionObj.openedBy === 'auto') {
+                state[existingIdx] = { ...state[existingIdx], ...positionObj, timestamp: state[existingIdx].timestamp };
+                console.log(`[State] Upgraded manual position to auto: ${positionObj.positionPubKey}`);
+            } else {
+                console.log(`[State] Duplicate positionPubKey detected, skipping: ${positionObj.positionPubKey}`);
+            }
+            saveState(state);
+            return;
+        }
+        
         state.push({
             ...positionObj,
             timestamp: Date.now()
