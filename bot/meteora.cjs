@@ -1,4 +1,4 @@
-const { PublicKey, VersionedTransaction, ComputeBudgetProgram } = require('@solana/web3.js');
+const { PublicKey, VersionedTransaction, ComputeBudgetProgram, sendAndConfirmTransaction } = require('@solana/web3.js');
 const DLMM = require('@meteora-ag/dlmm');
 const { Zap } = require('@meteora-ag/zap-sdk');
 const BN = require('bn.js');
@@ -159,15 +159,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                 if (createTxArray.length > 0) {
                     if (typeof createTxArray[0].add === 'function') createTxArray[0].instructions.unshift(priorityFeeIx);
                     const txid0 = await rpcRetryWrapper(async () => {
-                        const latestBlockHash = await connection.getLatestBlockhash();
-                        createTxArray[0].recentBlockhash = latestBlockHash.blockhash;
-                        const sig = await connection.sendTransaction(createTxArray[0], [walletKeypair, newPositionKeypair], { skipPreflight: true, maxRetries: 2 });
-                        await connection.confirmTransaction({
-                            signature: sig,
-                            blockhash: latestBlockHash.blockhash,
-                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
-                        }, "confirmed");
-                        return sig;
+                        return await sendAndConfirmTransaction(connection, createTxArray[0], [walletKeypair, newPositionKeypair], { skipPreflight: true });
                     });
                     console.log(`[LIVE] Create Position TX 1/${createTxArray.length} Confirmed. TXID: ${txid0}`);
                 }
@@ -177,15 +169,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     const remainingCreatePromises = createTxArray.slice(1).map((tx, idx) => {
                         if (typeof tx.add === 'function') tx.instructions.unshift(priorityFeeIx);
                         return rpcRetryWrapper(async () => {
-                            const latestBlockHash = await connection.getLatestBlockhash();
-                            tx.recentBlockhash = latestBlockHash.blockhash;
-                            const sig = await connection.sendTransaction(tx, [walletKeypair], { skipPreflight: true, maxRetries: 2 });
-                            await connection.confirmTransaction({
-                                signature: sig,
-                                blockhash: latestBlockHash.blockhash,
-                                lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
-                            }, "confirmed");
-                            return sig;
+                            return await sendAndConfirmTransaction(connection, tx, [walletKeypair], { skipPreflight: true });
                         });
                     });
 
@@ -219,15 +203,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                 const addPromises = addTxArray.map((tx, idx) => {
                     if (typeof tx.add === 'function') tx.instructions.unshift(priorityFeeIx);
                     return rpcRetryWrapper(async () => {
-                        const latestBlockHash = await connection.getLatestBlockhash();
-                        tx.recentBlockhash = latestBlockHash.blockhash;
-                        const sig = await connection.sendTransaction(tx, [walletKeypair], { skipPreflight: true, maxRetries: 2 });
-                        await connection.confirmTransaction({
-                            signature: sig,
-                            blockhash: latestBlockHash.blockhash,
-                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
-                        }, "confirmed");
-                        return sig;
+                        return await sendAndConfirmTransaction(connection, tx, [walletKeypair], { skipPreflight: true });
                     });
                 });
 
@@ -257,15 +233,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                 console.log(`[LIVE] Sending Add Liquidity transaction...`);
                 if (typeof createPositionTx.add === 'function') createPositionTx.instructions.unshift(priorityFeeIx);
                 const txid = await rpcRetryWrapper(async () => {
-                    const latestBlockHash = await connection.getLatestBlockhash();
-                    createPositionTx.recentBlockhash = latestBlockHash.blockhash;
-                    const sig = await connection.sendTransaction(createPositionTx, [walletKeypair, newPositionKeypair], { skipPreflight: true, maxRetries: 2 });
-                    await connection.confirmTransaction({
-                        signature: sig,
-                        blockhash: latestBlockHash.blockhash,
-                        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
-                    }, "confirmed");
-                    return sig;
+                    return await sendAndConfirmTransaction(connection, createPositionTx, [walletKeypair, newPositionKeypair], { skipPreflight: true });
                 });
                 console.log(`[LIVE] Transaction Confirmed. TXID: ${txid}`);
             }
@@ -409,15 +377,7 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     console.log(`[LIVE] Sending TX ${i + 1}/${mainTxs.length}...`);
                     if (typeof tx.add === 'function') tx.instructions.unshift(priorityFeeIx);
                     const txid = await rpcRetryWrapper(async () => {
-                        const latestBlockHash = await connection.getLatestBlockhash();
-                        tx.recentBlockhash = latestBlockHash.blockhash;
-                        const sig = await connection.sendTransaction(tx, [walletKeypair], { skipPreflight: true, maxRetries: 2 });
-                        await connection.confirmTransaction({
-                            signature: sig,
-                            blockhash: latestBlockHash.blockhash,
-                            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
-                        }, "confirmed");
-                        return sig;
+                        return await sendAndConfirmTransaction(connection, tx, [walletKeypair], { skipPreflight: true });
                     });
                     txids.push(txid);
                 }
@@ -465,15 +425,7 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                         console.log(`[LIVE] Sending Fallback TX ${i + 1}/${mainTxs.length}...`);
                         if (typeof tx.add === 'function') tx.instructions.unshift(priorityFeeIx);
                         const txid = await rpcRetryWrapper(async () => {
-                            const latestBlockHash = await connection.getLatestBlockhash();
-                            tx.recentBlockhash = latestBlockHash.blockhash;
-                            const sig = await connection.sendTransaction(tx, [walletKeypair], { skipPreflight: true, maxRetries: 2 });
-                            await connection.confirmTransaction({
-                                signature: sig,
-                                blockhash: latestBlockHash.blockhash,
-                                lastValidBlockHeight: latestBlockHash.lastValidBlockHeight
-                            }, "confirmed");
-                            return sig;
+                            return await sendAndConfirmTransaction(connection, tx, [walletKeypair], { skipPreflight: true });
                         });
                         txids.push(txid);
                     }
@@ -520,8 +472,7 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                                 const latestBlockHash = await connection.getLatestBlockhash();
                                 const fallbackTxid = await rpcRetryWrapper(async () => {
                                     const sig = await connection.sendRawTransaction(rawTransaction, {
-                                        skipPreflight: true,
-                                        maxRetries: 2
+                                        skipPreflight: true
                                     });
                                     await connection.confirmTransaction({
                                         signature: sig,
