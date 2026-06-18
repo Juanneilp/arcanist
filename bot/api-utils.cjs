@@ -76,7 +76,8 @@ async function rpcRetryWrapper(operation, maxRetries = 3) {
         try {
             return await operation();
         } catch (error) {
-            const isNonRetryable = NON_RETRYABLE_ERRORS.some(e => error.message && error.message.includes(e));
+            const errorText = (error.message || '') + ' ' + (error.logs ? JSON.stringify(error.logs) : '') + ' ' + (error.toString ? error.toString() : '');
+            const isNonRetryable = NON_RETRYABLE_ERRORS.some(e => errorText.includes(e));
             if (isNonRetryable) {
                 throw error;
             }

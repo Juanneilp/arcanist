@@ -27,6 +27,11 @@ function addPosition(positionObj) {
     let release;
     try {
         if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { stale: 5000 });
+    } catch(e) {
+        console.error("Lock error in addPosition", e.message);
+    }
+    
+    try {
         const state = readState();
         
         // GUARD: Prevent duplicate positionPubKey
@@ -49,7 +54,7 @@ function addPosition(positionObj) {
         });
         saveState(state);
     } catch(e) {
-        console.error("Lock error in addPosition", e.message);
+        console.error("Error in addPosition state modification", e.message);
     } finally {
         if (release) release();
     }
@@ -59,11 +64,16 @@ function removePosition(positionPubKey) {
     let release;
     try {
         if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { stale: 5000 });
+    } catch(e) {
+        console.error("Lock error in removePosition", e.message);
+    }
+    
+    try {
         const state = readState();
         const newState = state.filter(p => p.positionPubKey !== positionPubKey);
         saveState(newState);
     } catch(e) {
-        console.error("Lock error in removePosition", e.message);
+        console.error("Error in removePosition state modification", e.message);
     } finally {
         if (release) release();
     }
@@ -73,6 +83,11 @@ function updatePosition(positionPubKey, updateData) {
     let release;
     try {
         if (fs.existsSync(STATE_FILE)) release = lockfile.lockSync(STATE_FILE, { stale: 5000 });
+    } catch(e) {
+        console.error("Lock error in updatePosition", e.message);
+    }
+    
+    try {
         const state = readState();
         const idx = state.findIndex(p => p.positionPubKey === positionPubKey);
         if (idx !== -1) {
@@ -80,7 +95,7 @@ function updatePosition(positionPubKey, updateData) {
             saveState(state);
         }
     } catch(e) {
-        console.error("Lock error in updatePosition", e.message);
+        console.error("Error in updatePosition state modification", e.message);
     } finally {
         if (release) release();
     }
@@ -90,6 +105,11 @@ function logTrade(action, positionData) {
     let release;
     try {
         if (fs.existsSync(TRADE_LOG_FILE)) release = lockfile.lockSync(TRADE_LOG_FILE, { stale: 5000 });
+    } catch(e) {
+        console.error("Lock error in logTrade", e.message);
+    }
+    
+    try {
         let history = [];
         if (fs.existsSync(TRADE_LOG_FILE)) {
             try {
@@ -108,7 +128,7 @@ function logTrade(action, positionData) {
         
         fs.writeFileSync(TRADE_LOG_FILE, JSON.stringify(history, null, 2));
     } catch(e) {
-        console.error("Lock error in logTrade", e.message);
+        console.error("Error in logTrade state modification", e.message);
     } finally {
         if (release) release();
     }

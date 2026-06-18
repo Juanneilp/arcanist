@@ -365,7 +365,8 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     mainTxs = Array.isArray(closeTx) ? closeTx : [closeTx];
                 }
             } catch (err) {
-                if (err.message && (err.message.includes('0xbbf') || err.message.includes('3007') || err.message.includes('AccountOwnedByWrongProgram'))) {
+                const errorText = (err.message || '') + ' ' + (err.logs ? JSON.stringify(err.logs) : '') + ' ' + (err.toString ? err.toString() : '');
+                if (errorText.includes('0xbbf') || errorText.includes('3007') || errorText.includes('AccountOwnedByWrongProgram')) {
                     console.log(`[LIVE] Caught simulation error 3007 for ${positionPubKeyStr}. Treating as already closed.`);
                     return "already_closed";
                 }
@@ -394,45 +395,9 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                 }
 
                 if (tokenBalanceLamports.gt(new BN(0))) {
-                    console.log(`[LIVE] Expecting ~${tokenBalanceLamports.toString()} lamports of ${inputMintStr}. Preparing atomic Zap Out...`);
-
-                    const { getJupiterQuote, getJupiterSwapInstruction, getTokenProgramFromMint } = require("@meteora-ag/zap-sdk");
-                    const zap = new Zap(connection, {
-                        jupiterApiUrl: "https://api.jup.ag",
-                        jupiterApiKey: process.env.JUPITER_API_KEY || "",
-                    });
-
-                    const quote = await getJupiterQuote(
-                        inputMint,
-                        outputMint,
-                        tokenBalanceLamports,
-                        40, // maxAccounts
-                        50, // slippageBps (0.5%)
-                        false, true, true,
-                        { jupiterApiKey: process.env.JUPITER_API_KEY || "" }
-                    );
-
-                    const swapInstructionResponse = await getJupiterSwapInstruction(walletKeypair.publicKey, quote, {
-                        jupiterApiKey: process.env.JUPITER_API_KEY || "",
-                    });
-
-                    const inputTokenProgram = await getTokenProgramFromMint(connection, inputMint);
-                    const outputTokenProgram = await getTokenProgramFromMint(connection, outputMint);
-
-                    const zapOutTx = await zap.zapOutThroughJupiter({
-                        user: walletKeypair.publicKey,
-                        inputMint: inputMint,
-                        outputMint: outputMint,
-                        inputTokenProgram: inputTokenProgram,
-                        outputTokenProgram: outputTokenProgram,
-                        jupiterSwapResponse: swapInstructionResponse,
-                        maxSwapAmount: tokenBalanceLamports,
-                        percentageToZapOut: 100 // 100% of the received tokens
-                    });
-
-                    mainTxs.push(zapOutTx);
-                    zapAttached = true;
-                    console.log(`[LIVE] Zap Out through Jupiter appended as separate transaction.`);
+                    console.log(`[LIVE] Expecting ~${tokenBalanceLamports.toString()} lamports of ${inputMintStr}. Bypassing atomic Zap Out for faster 2-step execution...`);
+                    // We skip atomic Zap Out because it is too heavy and often fails with "Block height exceeded".
+                    // The Fallback Manual Swap logic below will handle swapping the returned tokens.
                 }
             } catch (e) {
                 console.log(`[LIVE] Zap Out preparation failed: ${e.message}. Proceeding without atomic Zap Out.`);
@@ -458,7 +423,8 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                 }
                 zapSuccess = zapAttached;
             } catch (e) {
-                if (e.message && (e.message.includes('0xbbf') || e.message.includes('3007') || e.message.includes('AccountOwnedByWrongProgram'))) {
+                const errorText = (e.message || '') + ' ' + (e.logs ? JSON.stringify(e.logs) : '') + ' ' + (e.toString ? e.toString() : '');
+                if (errorText.includes('0xbbf') || errorText.includes('3007') || errorText.includes('AccountOwnedByWrongProgram')) {
                     console.log(`[LIVE] Caught error 3007 during TX send for ${positionPubKeyStr}. Treating as already closed.`);
                     return "already_closed";
                 }
@@ -486,7 +452,8 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                             mainTxs = Array.isArray(closeTx) ? closeTx : [closeTx];
                         }
                     } catch (err) {
-                        if (err.message && (err.message.includes('0xbbf') || err.message.includes('3007') || err.message.includes('AccountOwnedByWrongProgram'))) {
+                        const errorText = (err.message || '') + ' ' + (err.logs ? JSON.stringify(err.logs) : '') + ' ' + (err.toString ? err.toString() : '');
+                        if (errorText.includes('0xbbf') || errorText.includes('3007') || errorText.includes('AccountOwnedByWrongProgram')) {
                             console.log(`[LIVE] Caught simulation error 3007 during fallback for ${positionPubKeyStr}. Treating as already closed.`);
                             return "already_closed";
                         }
