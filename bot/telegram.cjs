@@ -22,8 +22,9 @@ if (token && token !== 'your_telegram_bot_token') {
                         `/getconfig [key] - View bot configuration\n` +
                         `/setconfig <key> <value> - Update bot configuration\n` +
                         `/currency [USD|SOL] - Toggle PnL calculation currency\n` +
-                        `/blacklist <address> - Add token to blacklist\n` +
+                        `/blacklist <CA>, <Name>, <Reason> - Add token to blacklist\n` +
                         `/unblacklist <address> - Remove token from blacklist\n` +
+                        `/viewblacklist - View blacklisted tokens\n` +
                         `/chat [message] - Chat with Hermes AI Analyst`;
         ctx.reply(helpMsg);
     });
@@ -43,6 +44,7 @@ if (token && token !== 'your_telegram_bot_token') {
     bot.command('currency', handlers.authGuard, handlers.currencyCommand);
     bot.command('blacklist', handlers.authGuard, handlers.blacklistCommand);
     bot.command('unblacklist', handlers.authGuard, handlers.unblacklistCommand);
+    bot.command('viewblacklist', handlers.authGuard, handlers.viewBlacklistCommand);
     bot.command('chat', handlers.authGuard, handlers.chatCommand);
 
     // Actions
@@ -73,7 +75,8 @@ if (token && token !== 'your_telegram_bot_token') {
                     { command: 'currency', description: 'Toggle PnL display currency' },
                     { command: 'chat', description: 'Chat with Hermes AI Analyst' },
                     { command: 'blacklist', description: 'Add token to blacklist' },
-                    { command: 'unblacklist', description: 'Remove token from blacklist' }
+                    { command: 'unblacklist', description: 'Remove token from blacklist' },
+                    { command: 'viewblacklist', description: 'View blacklisted tokens' }
                 ]).catch(e => console.error("Failed to set commands:", e.message));
                 return;
             } catch (e) {

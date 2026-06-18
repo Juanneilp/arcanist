@@ -800,13 +800,15 @@ async function setConfigCommand(ctx) {
 
 async function blacklistCommand(ctx) {
     try {
-        const text = ctx.message.text.trim();
-        const parts = text.split(/\s+/);
-        if (parts.length < 2) {
-            return ctx.reply("❌ Invalid format. Use: /blacklist <token_address>");
+        const text = ctx.message.text.replace(/^\/blacklist\s*/, '').trim();
+        if (!text) {
+            return ctx.reply("❌ Invalid format. Use: /blacklist <CA>, <Name>, <Reason>");
         }
         
-        const address = parts[1];
+        const parts = text.split(',').map(s => s.trim());
+        const address = parts[0];
+        const name = parts[1] || 'Unknown';
+        const reason = parts.slice(2).join(', ') || 'No reason provided';
         
         const blacklistPath = path.join(__dirname, '..', 'blacklist.json');
         let blacklist = [];
@@ -814,10 +816,12 @@ async function blacklistCommand(ctx) {
             blacklist = JSON.parse(fs.readFileSync(blacklistPath, 'utf-8'));
         }
         
-        if (!blacklist.includes(address)) {
-            blacklist.push(address);
+        const exists = blacklist.some(b => (typeof b === 'string' ? b : b.address) === address);
+        
+        if (!exists) {
+            blacklist.push({ address, name, reason });
             fs.writeFileSync(blacklistPath, JSON.stringify(blacklist, null, 2));
-            ctx.reply(`✅ Token \`${address}\` added to blacklist.`, { parse_mode: 'Markdown' });
+            ctx.reply(`✅ Token \`${address}\` added to blacklist.\n*Name*: ${name}\n*Reason*: ${reason}`, { parse_mode: 'Markdown' });
         } else {
             ctx.reply(`⚠️ Token \`${address}\` is already in blacklist.`, { parse_mode: 'Markdown' });
         }
@@ -842,7 +846,7 @@ async function unblacklistCommand(ctx) {
             blacklist = JSON.parse(fs.readFileSync(blacklistPath, 'utf-8'));
         }
         
-        const index = blacklist.indexOf(address);
+        const index = blacklist.findIndex(b => (typeof b === 'string' ? b : b.address) === address);
         if (index !== -1) {
             blacklist.splice(index, 1);
             fs.writeFileSync(blacklistPath, JSON.stringify(blacklist, null, 2));
@@ -852,6 +856,35 @@ async function unblacklistCommand(ctx) {
         }
     } catch (e) {
         ctx.reply("❌ Failed to remove from blacklist: " + e.message);
+    }
+}
+
+async function viewBlacklistCommand(ctx) {
+    try {
+        const blacklistPath = path.join(__dirname, '..', 'blacklist.json');
+        let blacklist = [];
+        if (fs.existsSync(blacklistPath)) {
+            blacklist = JSON.parse(fs.readFileSync(blacklistPath, 'utf-8'));
+        }
+        
+        if (blacklist.length === 0) {
+            return ctx.reply("📜 Blacklist is empty.");
+        }
+        
+        let msg = `📜 *Blacklisted Tokens (${blacklist.length})*\n─────────────────\n`;
+        blacklist.forEach((item, idx) => {
+            const address = typeof item === 'string' ? item : item.address;
+            const name = typeof item === 'string' ? 'Unknown' : (item.name || 'Unknown');
+            const reason = typeof item === 'string' ? 'No reason provided' : (item.reason || 'No reason provided');
+            msg += `${idx + 1}. *${name}*\n   🔗 \`${address}\`\n   💡 Reason: _${reason}_\n\n`;
+        });
+        
+        if (msg.length > 4000) {
+            return ctx.replyWithDocument({ source: blacklistPath, filename: 'blacklist.json' });
+        }
+        await safeReplyWithMarkdown(ctx, msg);
+    } catch (e) {
+        ctx.reply("❌ Failed to view blacklist: " + e.message);
     }
 }
 
@@ -927,6 +960,7 @@ module.exports = {
     setConfigCommand,
     blacklistCommand,
     unblacklistCommand,
+    viewBlacklistCommand,
     chatCommand,
     currencyCommand
 };

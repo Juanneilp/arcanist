@@ -1,5 +1,17 @@
 [
-  "E6ifp2mJy8cYQehUGUtFvrXriRKxRuonLmrvTFypump",
-  "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
-  "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump"
+  {
+    "address": "E6ifp2mJy8cYQehUGUtFvrXriRKxRuonLmrvTFypump",
+    "name": "Unknown",
+    "reason": "Legacy entry"
+  },
+  {
+    "address": "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
+    "name": "Unknown",
+    "reason": "Legacy entry"
+  },
+  {
+    "address": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
+    "name": "Unknown",
+    "reason": "Legacy entry"
+  }
 ]

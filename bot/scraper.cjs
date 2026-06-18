@@ -209,7 +209,7 @@ async function runScraper() {
 
         const tokens = response.data.rank || [];
         const fundamentalFilteredTokens = tokens.filter(token => {
-            if (blacklist && blacklist.includes(token.address)) return false;
+            if (blacklist && blacklist.some(b => (typeof b === 'string' ? b : b.address) === token.address)) return false;
             const marketCap = parseFloat(token.market_cap) || 0;
             const volume24h = parseFloat(token.volume) || 0; 
             const gasFee = parseFloat(token.gas_fee) || 0; 
