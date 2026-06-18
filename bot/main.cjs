@@ -322,12 +322,12 @@ async function runBot() {
             await runScraper();
             
             await processCandidates({
-                autoEntry: autoEntry,
+                autoEntry: (currentConfig.monitoringConfig?.entryMode || "auto") === "auto",
                 maxPositions: currentMaxPositions,
-                botConfig: botConfig,
+                botConfig: currentConfig.meteoraConfig || botConfig,
                 connection: connection,
                 walletKeypair: walletKeypair,
-                botMode: botMode
+                botMode: currentConfig.botMode || botMode
             });
         } catch (e) {
             console.error('[Scraper] Error in cron job:', e);
