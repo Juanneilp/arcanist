@@ -1,17 +1,17 @@
 [
   {
     "address": "E6ifp2mJy8cYQehUGUtFvrXriRKxRuonLmrvTFypump",
-    "name": "Unknown",
-    "reason": "Legacy entry"
+    "name": "SPCX",
+    "reason": "Pool dan Avg Fees/Min $0,6"
   },
   {
     "address": "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
-    "name": "Unknown",
-    "reason": "Legacy entry"
+    "name": "KINS",
+    "reason": "Pool dan Avg Fees/Min $2,44"
   },
   {
     "address": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
-    "name": "Unknown",
-    "reason": "Legacy entry"
+    "name": "TOESCOIN",
+    "reason": "Pool dan Avg Fees/Min $0,27"
   }
 ]
