@@ -204,7 +204,23 @@ async function runBot() {
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
-                        const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        let rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        if (!details.inRange) {
+                            let oorStrParts = [];
+                            if (pos.oorTimestamp) {
+                                const oorMins = Math.floor((Date.now() - pos.oorTimestamp) / 60000);
+                                oorStrParts.push(`${formatAge(oorMins)}`);
+                            }
+                            if (pos.activeBinId !== undefined && pos.minBinId !== undefined && pos.maxBinId !== undefined) {
+                                let binsOOR = 0;
+                                if (pos.activeBinId < pos.minBinId) binsOOR = pos.minBinId - pos.activeBinId;
+                                else if (pos.activeBinId > pos.maxBinId) binsOOR = pos.activeBinId - pos.maxBinId;
+                                if (binsOOR > 0) oorStrParts.push(`${binsOOR} bins`);
+                            }
+                            if (oorStrParts.length > 0) {
+                                rangeStatus += ` (${oorStrParts.join(' | ')})`;
+                            }
+                        }
                         
                         msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
@@ -241,7 +257,23 @@ async function runBot() {
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
-                        const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        let rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        if (!details.inRange) {
+                            let oorStrParts = [];
+                            if (pos.oorTimestamp) {
+                                const oorMins = Math.floor((Date.now() - pos.oorTimestamp) / 60000);
+                                oorStrParts.push(`${formatAge(oorMins)}`);
+                            }
+                            if (pos.activeBinId !== undefined && pos.minBinId !== undefined && pos.maxBinId !== undefined) {
+                                let binsOOR = 0;
+                                if (pos.activeBinId < pos.minBinId) binsOOR = pos.minBinId - pos.activeBinId;
+                                else if (pos.activeBinId > pos.maxBinId) binsOOR = pos.activeBinId - pos.maxBinId;
+                                if (binsOOR > 0) oorStrParts.push(`${binsOOR} bins`);
+                            }
+                            if (oorStrParts.length > 0) {
+                                rangeStatus += ` (${oorStrParts.join(' | ')})`;
+                            }
+                        }
                         
                         msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;

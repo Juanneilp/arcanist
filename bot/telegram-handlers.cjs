@@ -114,7 +114,23 @@ async function sendPositionsCommand(ctx) {
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
-                        const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        let rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        if (!details.inRange) {
+                            let oorStrParts = [];
+                            if (pos.oorTimestamp) {
+                                const oorMins = Math.floor((Date.now() - pos.oorTimestamp) / 60000);
+                                oorStrParts.push(`${formatAge(oorMins)}`);
+                            }
+                            if (pos.activeBinId !== undefined && pos.minBinId !== undefined && pos.maxBinId !== undefined) {
+                                let binsOOR = 0;
+                                if (pos.activeBinId < pos.minBinId) binsOOR = pos.minBinId - pos.activeBinId;
+                                else if (pos.activeBinId > pos.maxBinId) binsOOR = pos.activeBinId - pos.maxBinId;
+                                if (binsOOR > 0) oorStrParts.push(`${binsOOR} bins`);
+                            }
+                            if (oorStrParts.length > 0) {
+                                rangeStatus += ` (${oorStrParts.join(' | ')})`;
+                            }
+                        }
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         
                         if (pnlCurrency === 'SOL' && solPriceUsd > 0) {
@@ -156,7 +172,23 @@ async function sendPositionsCommand(ctx) {
                     if (details) {
                         const pnlSign = details.pnlUsd >= 0 ? "+" : "-";
                         const pnlColor = details.pnlUsd >= 0 ? "🟢" : "🔴";
-                        const rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        let rangeStatus = details.inRange ? "✅ In Range" : "⚠️ OOR";
+                        if (!details.inRange) {
+                            let oorStrParts = [];
+                            if (pos.oorTimestamp) {
+                                const oorMins = Math.floor((Date.now() - pos.oorTimestamp) / 60000);
+                                oorStrParts.push(`${formatAge(oorMins)}`);
+                            }
+                            if (pos.activeBinId !== undefined && pos.minBinId !== undefined && pos.maxBinId !== undefined) {
+                                let binsOOR = 0;
+                                if (pos.activeBinId < pos.minBinId) binsOOR = pos.minBinId - pos.activeBinId;
+                                else if (pos.activeBinId > pos.maxBinId) binsOOR = pos.activeBinId - pos.maxBinId;
+                                if (binsOOR > 0) oorStrParts.push(`${binsOOR} bins`);
+                            }
+                            if (oorStrParts.length > 0) {
+                                rangeStatus += ` (${oorStrParts.join(' | ')})`;
+                            }
+                        }
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         
                         if (pnlCurrency === 'SOL' && solPriceUsd > 0) {
