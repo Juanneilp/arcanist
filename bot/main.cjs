@@ -10,6 +10,7 @@ const cron = require('node-cron');
 const { runScraper } = require('./scraper.cjs');
 const { processCandidates } = require('./engine.cjs');
 const { monitoringLoop } = require('./monitor.cjs');
+const { generateBriefing, getLastBriefingDate, getJakartaDateStr } = require('./briefing.cjs');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -369,6 +370,19 @@ async function runBot() {
     });
     console.log(`Started Scraper Cron Job (Interval: ${scraperIntervalMinutes}m)`);
 
+    // --- Morning Briefing Cron Job ---
+    cron.schedule('0 8 * * *', async () => {
+        console.log(`[Briefing] Running daily morning briefing...`);
+        try {
+            await generateBriefing();
+        } catch (e) {
+            console.error('[Briefing Error]:', e);
+        }
+    }, {
+        timezone: "Asia/Jakarta"
+    });
+    console.log(`Started Morning Briefing Cron Job (Daily at 08:00 WIB)`);
+
     // --- Initial Entry Logic (Startup) ---
     console.log(`[Startup] Running initial startup routine...`);
     try {
@@ -380,6 +394,17 @@ async function runBot() {
         
         // Show dashboard wallet and positions on startup
         await sendDashboardReport();
+
+        // --- Missed Briefing Detection ---
+        const todayStr = getJakartaDateStr();
+        const lastBriefingDate = getLastBriefingDate();
+        if (lastBriefingDate !== todayStr) {
+            const jakartaTime = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Jakarta"}));
+            if (jakartaTime.getHours() >= 8) {
+                console.log(`[Briefing] Missed briefing detected for today. Sending now...`);
+                await generateBriefing();
+            }
+        }
         
         const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
         let currentMaxPositions = maxPositions;
