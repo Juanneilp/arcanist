@@ -1,11 +1,20 @@
-const { spawn } = require('child_process');
-const util = require('util');
 const fs = require('fs');
 const path = require('path');
-const { spawnAsync } = require('./api-utils.cjs');
+const axios = require('axios');
+const pLimit = require('p-limit').default || require('p-limit');
+const crypto = require('crypto');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
+const GMGN_BASE_URL = 'https://openapi.gmgn.ai';
+const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
+
+function getAuthParams() {
+    return {
+        timestamp: Math.floor(Date.now() / 1000),
+        client_id: crypto.randomUUID()
+    };
+}
 
 // --- SUPERTREND LOGIC ---
 function calculateATR(data, period) {
@@ -145,27 +154,38 @@ loadConfig();
 
 console.log(`Starting GMGN Scraper...`);
 
-const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
-
 async function fetchKlineData(address, timeframe) {
     if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address) && !/^0x[a-fA-F0-9]{40}$/.test(address)) {
         console.error(`[Security] Invalid address format detected: ${address}`);
         return null;
     }
     try {
-        const { stdout } = await spawnAsync('npx', [
-            'gmgn-cli', 'market', 'kline',
-            '--chain', apiSettings.chain,
-            '--address', address,
-            '--resolution', timeframe,
-            '--raw'
-        ], {
-            env: { ...process.env, GMGN_API_KEY: apiKey }
+        const params = new URLSearchParams();
+        params.append('chain', apiSettings.chain);
+        params.append('address', address);
+        params.append('resolution', timeframe);
+        
+        const auth = getAuthParams();
+        params.append('timestamp', auth.timestamp);
+        params.append('client_id', auth.client_id);
+
+        const response = await axios.get(`${GMGN_BASE_URL}/v1/market/token_kline`, {
+            params,
+            headers: {
+                'X-APIKEY': apiKey,
+                'Content-Type': 'application/json'
+            }
         });
-        const response = JSON.parse(stdout);
-        if (response.list) return response.list;
+        
+        const data = response.data;
+        if (data && data.code === 0 && data.data && data.data.list) {
+            return data.data.list;
+        }
         return null;
     } catch (e) {
+        if (e.response && e.response.status === 429) {
+            console.error(`[API] Rate limit hit fetching K-lines for ${address}`);
+        }
         return null;
     }
 }
@@ -174,40 +194,36 @@ async function runScraper() {
     loadConfig();
     console.log(`Executing API Request for Trending Tokens...`);
     try {
-        const args = [
-            'gmgn-cli', 'market', 'trending', 
-            '--chain', apiSettings.chain, 
-            '--interval', apiSettings.interval, 
-            '--limit', apiSettings.limit.toString()
-        ];
+        const params = new URLSearchParams();
+        params.append('chain', apiSettings.chain);
+        params.append('interval', apiSettings.interval);
+        if (apiSettings.limit) params.append('limit', apiSettings.limit.toString());
         
         if (apiSettings.platform) {
-            if (Array.isArray(apiSettings.platform)) {
-                apiSettings.platform.forEach(p => {
-                    args.push('--platform', p);
-                });
-            } else if (typeof apiSettings.platform === 'string') {
-                const platforms = apiSettings.platform.split(',').map(s => s.trim());
-                platforms.forEach(p => {
-                    args.push('--platform', p);
-                });
-            }
+            const platforms = Array.isArray(apiSettings.platform) ? apiSettings.platform : apiSettings.platform.split(',').map(s => s.trim());
+            platforms.forEach(p => params.append('platforms', p));
         }
 
         if (apiSettings.apiFilters && Array.isArray(apiSettings.apiFilters)) {
-            apiSettings.apiFilters.forEach(filter => {
-                args.push('--filter', filter);
-            });
+            apiSettings.apiFilters.forEach(filter => params.append('filters', filter));
         }
-        args.push('--raw');
 
-        const { stdout } = await spawnAsync('npx', args, {
-            env: { ...process.env, GMGN_API_KEY: apiKey }
+        const auth = getAuthParams();
+        params.append('timestamp', auth.timestamp);
+        params.append('client_id', auth.client_id);
+
+        const res = await axios.get(`${GMGN_BASE_URL}/v1/market/rank`, {
+            params,
+            headers: {
+                'X-APIKEY': apiKey,
+                'Content-Type': 'application/json'
+            }
         });
-        const response = JSON.parse(stdout);
-        if (response.code !== 0) return console.error(`API Error: ${response.msg}`);
+        
+        const data = res.data;
+        if (data.code !== 0) return console.error(`API Error: ${data.msg || data.message || 'Unknown error'}`);
 
-        const tokens = response.data.rank || [];
+        const tokens = data.data.rank || [];
         const fundamentalFilteredTokens = tokens.filter(token => {
             if (blacklist && blacklist.some(b => (typeof b === 'string' ? b : b.address) === token.address)) return false;
             const marketCap = parseFloat(token.market_cap) || 0;
@@ -262,19 +278,15 @@ async function runScraper() {
 
         if (stConf.enabled || vtConf.enabled) {
             const timeframe = stConf.enabled ? stConf.timeframe : "15m";
-            for (let i = 0; i < fundamentalFilteredTokens.length; i++) {
-                const token = fundamentalFilteredTokens[i];
-                process.stdout.write(`[${i+1}/${fundamentalFilteredTokens.length}] Checking chart for ${token.symbol}... `);
-                
-                // Add a 1.5 second delay between requests to prevent GMGN "Too Many Requests" (Rate Limit)
-                if (i > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                }
-                
+            const limit = pLimit(5); // Process up to 5 tokens concurrently
+            
+            console.log(`Checking charts for ${fundamentalFilteredTokens.length} tokens using 5 concurrent requests...`);
+            
+            const chartChecks = fundamentalFilteredTokens.map((token, i) => limit(async () => {
                 const klines = await fetchKlineData(token.address, timeframe);
                 if (!klines || klines.length === 0) {
-                    console.log(`Failed to fetch K-Line data.`);
-                    continue;
+                    console.log(`[${token.symbol}] Failed to fetch K-Line data.`);
+                    return null;
                 }
 
                 const sortedKlines = klines.sort((a, b) => a.time - b.time).map(k => ({
@@ -292,18 +304,18 @@ async function runScraper() {
                 if (stConf.enabled) {
                     const result = calculateSupertrend(sortedKlines, stConf.period, stConf.multiplier);
                     if (!result || result.trend.length === 0) {
-                        console.log(`Not enough data for Supertrend.`);
-                        continue;
+                        console.log(`[${token.symbol}] Not enough data for Supertrend.`);
+                        return null;
                     }
                     const latestTrend = result.trend[result.trend.length - 1];
                     latestSupertrend = result.supertrend[result.supertrend.length - 1];
                     if (latestTrend !== 1) {
                         passST = false;
-                        console.log(`FAIL (Red Supertrend) - Price: $${latestPrice}, ST: $${latestSupertrend}`);
+                        console.log(`[${token.symbol}] FAIL (Red Supertrend) - Price: $${latestPrice}, ST: $${latestSupertrend}`);
                     }
                 }
 
-                if (!passST) continue;
+                if (!passST) return null;
 
                 let passVT = true;
                 let volumeTrendStatus = 'N/A';
@@ -316,18 +328,18 @@ async function runScraper() {
                         vtChange = vtResult.changePercent;
                         if (volumeTrendStatus === 'Decelerating') {
                             passVT = false;
-                            console.log(`FAIL (Decelerating Volume: ${vtChange.toFixed(2)}%)`);
+                            console.log(`[${token.symbol}] FAIL (Decelerating Volume: ${vtChange.toFixed(2)}%)`);
                         }
                     } else {
-                         console.log(`Not enough data for Volume Trend.`);
+                         console.log(`[${token.symbol}] Not enough data for Volume Trend.`);
                          passVT = false;
                     }
                 }
 
-                if (!passVT) continue;
+                if (!passVT) return null;
 
                 const volStr = vtConf.enabled ? `Vol ${volumeTrendStatus}` : '';
-                console.log(`PASS (ST Hijau${volStr ? ', ' + volStr : ''}) - Price: $${latestPrice}`);
+                console.log(`[${token.symbol}] PASS (ST Hijau${volStr ? ', ' + volStr : ''}) - Price: $${latestPrice}`);
                 if (stConf.enabled) token.latestSupertrend = latestSupertrend;
                 token.latestPrice = latestPrice;
                 if (vtConf.enabled) {
@@ -345,8 +357,12 @@ async function runScraper() {
                     token.is_new_ath = false;
                 }
                 
-                finalTokens.push(token);
-            }
+                return token;
+            }));
+
+            const results = await Promise.all(chartChecks);
+            const passedTokens = results.filter(t => t !== null);
+            finalTokens.push(...passedTokens);
         } else {
             finalTokens.push(...fundamentalFilteredTokens);
         }
@@ -402,8 +418,8 @@ async function runScraper() {
             sendMessage(`🔍 *Scraper Run Finished:*\nNo candidates passed the filters.`);
         }
     } catch (e) {
-        if (e.stdout) {
-            console.error(`API Execution failed: ${e.stdout.trim()}`);
+        if (e.response) {
+            console.error(`API Execution failed: HTTP ${e.response.status} - ${JSON.stringify(e.response.data)}`);
         } else {
             console.error(`Execution failed: ${e.message}`);
         }
