@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('./envcrypt.cjs').loadEnv();
 const { Telegraf } = require('telegraf');
 const handlers = require('./telegram-handlers.cjs');
 

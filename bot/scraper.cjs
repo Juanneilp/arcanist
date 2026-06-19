@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnAsync } = require('./api-utils.cjs');
 
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('./envcrypt.cjs').loadEnv();
 
 
 // --- SUPERTREND LOGIC ---

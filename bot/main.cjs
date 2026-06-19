@@ -12,7 +12,7 @@ const { processCandidates } = require('./engine.cjs');
 const { monitoringLoop } = require('./monitor.cjs');
 const { generateBriefing, getLastBriefingDate, getJakartaDateStr } = require('./briefing.cjs');
 
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('./envcrypt.cjs').loadEnv();
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
 process.on('uncaughtException', (err) => {

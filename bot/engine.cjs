@@ -4,7 +4,7 @@ const { fetchMeteoraPools, addLiquidity } = require('./solana-dex.cjs');
 const { readState, addPosition, logTrade } = require('./state.cjs');
 const { screenCandidates } = require('./ai-agent.cjs');
 const { sendMessage } = require('./telegram.cjs');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('./envcrypt.cjs').loadEnv();
 
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('./envcrypt.cjs').loadEnv();
 
 const AI_API_KEY = process.env.AI_API_KEY || process.env.OPENROUTER_API_KEY;
 
