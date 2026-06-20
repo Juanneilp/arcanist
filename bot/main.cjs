@@ -119,6 +119,16 @@ async function runBot() {
     let reportCronExpression = `*/${reportIntervalMinutes} * * * *`;
     if (reportIntervalMinutes < 1) reportCronExpression = `* * * * *`;
     
+    function getEntryTypeFlag(pos) {
+        if (pos.entryType === "web") return "🌐 Web Meteora";
+        if (pos.entryType === "telegram") return "💬 Telegram";
+        if (pos.entryType === "auto") return "🤖 Arcanist AI";
+        
+        if (pos.entryReason && pos.entryReason.includes("Telegram")) return "💬 Telegram";
+        if (pos.openedBy === "auto") return "🤖 Arcanist AI";
+        return "🌐 Web Meteora";
+    }
+
     async function sendDashboardReport() {
         let rawPositions = readState();
         // De-duplicate by positionPubKey (prefer auto over manual)
@@ -225,7 +235,7 @@ async function runBot() {
                         
                         msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         msg += `   ${rangeStatus}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
@@ -233,7 +243,7 @@ async function runBot() {
                         }
                     } else {
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
                             msg += `   💡 Reason: _${safeReason}_\n`;
@@ -278,7 +288,7 @@ async function runBot() {
                         
                         msg += `   ${pnlColor} PnL: ${pnlSign}$${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         msg += `   ${rangeStatus}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
@@ -286,7 +296,7 @@ async function runBot() {
                         }
                     } else {
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
                             msg += `   💡 Reason: _${safeReason}_\n`;

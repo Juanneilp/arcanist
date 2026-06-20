@@ -196,7 +196,6 @@ async function monitoringLoop(connection, walletKeypair) {
     
     for (let pos of activePositions) {
         const posCloseMode = pos.closeMode || "auto";
-        if (posCloseMode === "manual") continue;
         
         try {
             const posAccountInfo = await connection.getAccountInfo(new PublicKey(pos.positionPubKey));
@@ -248,6 +247,7 @@ async function monitoringLoop(connection, walletKeypair) {
                 }
             }
         }
+        if (posCloseMode === "manual") continue;
         
         const exitData = await evaluateExitCondition(pos);
         if (exitData.shouldExit) {

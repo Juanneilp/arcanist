@@ -187,6 +187,7 @@ async function processCandidates(options = {}) {
                     entryPriceUsd: entryPriceUsd,
                     minBinId: result.minBinId,
                     maxBinId: result.maxBinId,
+                    entryType: "auto",
                     entryReason: cleanAiReason,
                     closeMode: "auto"
                 };

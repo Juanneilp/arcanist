@@ -26,6 +26,17 @@ async function safeReplyWithMarkdown(ctx, msg) {
     }
 }
 
+function getEntryTypeFlag(pos) {
+    if (pos.entryType === "web") return "🌐 Web Meteora";
+    if (pos.entryType === "telegram") return "💬 Telegram";
+    if (pos.entryType === "auto") return "🤖 Arcanist AI";
+    
+    // Fallbacks
+    if (pos.entryReason && pos.entryReason.includes("Telegram")) return "💬 Telegram";
+    if (pos.openedBy === "auto") return "🤖 Arcanist AI";
+    return "🌐 Web Meteora";
+}
+
 // Middleware: Auth Guard
 const authGuard = async (ctx, next) => {
     const allowedIds = [process.env.TELEGRAM_CHAT_ID].filter(Boolean);
@@ -140,7 +151,7 @@ async function sendPositionsCommand(ctx) {
                             msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         msg += `   ${rangeStatus}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
@@ -149,7 +160,7 @@ async function sendPositionsCommand(ctx) {
                     } else {
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
                             msg += `   💡 Reason: _${safeReason}_\n`;
@@ -198,7 +209,7 @@ async function sendPositionsCommand(ctx) {
                             msg += `   ${pnlColor} PnL: ${pnlSign}${Math.abs(details.pnlUsd).toFixed(2)} (${pnlSign}${Math.abs(details.pnlPct).toFixed(2)}%)\n`;
                         }
                         msg += `   💎 Fees: $${details.unclaimedFeesUsd.toFixed(4)} | 💰 Value: $${details.totalValueUsd.toFixed(4)}\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         msg += `   ${rangeStatus}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
@@ -207,7 +218,7 @@ async function sendPositionsCommand(ctx) {
                     } else {
                         const closeModeIcon = (pos.closeMode || 'auto') === 'auto' ? '🤖 Auto' : '👤 Manual';
                         msg += `   Invested: ${investedStr} SOL\n`;
-                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon}\n`;
+                        msg += `   ⏱ Age: ${formatAge(ageMinutes)} | ⚙️ ${closeModeIcon} | ${getEntryTypeFlag(pos)}\n`;
                         if (pos.entryReason) {
                             const safeReason = pos.entryReason.replace(/[_*`\[\]]/g, '');
                             msg += `   💡 Reason: _${safeReason}_\n`;
@@ -330,6 +341,7 @@ async function openCommand(ctx) {
                 positionPubKey: posPubKey,
                 investedSol: solToDeploy,
                 openedBy: 'manual',
+                entryType: 'telegram',
                 entryReason: "Manual open from Telegram",
                 closeMode: "auto"
             });
@@ -596,7 +608,7 @@ async function historyCommand(ctx) {
             const emoji = isEntry ? '🟢' : '🔴';
             const actionText = isEntry ? 'ENTRY' : 'EXIT';
             const safeSymbol = (trade.tokenSymbol || 'Unknown').replace(/[_*`\[\]]/g, '');
-            msg += `${idx + 1}. ${emoji} *${actionText}* - ${safeSymbol}\n`;
+            msg += `${idx + 1}. ${emoji} *${actionText}* - ${safeSymbol} | ${getEntryTypeFlag(trade)}\n`;
             if (trade.reason || trade.entryReason) {
                 const safeReason = (trade.reason || trade.entryReason).replace(/[_*`\[\]]/g, '');
                 msg += `   💡 Reason: _${safeReason}_\n`;
