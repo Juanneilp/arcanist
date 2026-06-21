@@ -291,10 +291,18 @@ async function openCommand(ctx) {
         
         const minBinStep = config.meteoraConfig?.minBinStep || 0;
         const maxBinStep = config.meteoraConfig?.maxBinStep || 1000;
-        const filteredPools = pools.filter(p => p.bin_step >= minBinStep && p.bin_step <= maxBinStep);
+        const minFee = config.meteoraConfig?.minFee;
+        const maxFee = config.meteoraConfig?.maxFee;
+        
+        const filteredPools = pools.filter(p => {
+            const passBinStep = p.bin_step >= minBinStep && p.bin_step <= maxBinStep;
+            const passFee = (minFee === undefined || p.base_fee_pct >= minFee) &&
+                            (maxFee === undefined || p.base_fee_pct <= maxFee);
+            return passBinStep && passFee;
+        });
         
         if (filteredPools.length === 0) {
-            return ctx.reply(`❌ No active DLMM pools found within bin step limits (${minBinStep}-${maxBinStep}) for ${tokenMint}.`);
+            return ctx.reply(`❌ No active DLMM pools found within limits (Bin: ${minBinStep}-${maxBinStep}, Fee: ${minFee ?? 'any'}-${maxFee ?? 'any'}) for ${tokenMint}.`);
         }
         
         const bestPool = filteredPools.sort((a, b) => {

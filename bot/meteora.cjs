@@ -25,6 +25,7 @@ async function fetchMeteoraPools(query, allowedQuoteTokens = []) {
                 poolAddress: p.address || p.pool_address,
                 name: p.name,
                 bin_step: p.bin_step ?? p.dlmm_params?.bin_step ?? p.pool_config?.bin_step,
+                base_fee_pct: p.base_fee_pct ?? p.pool_config?.base_fee_pct ?? p.dlmm_params?.base_fee_pct ?? 0,
                 liquidity: p.liquidity ?? p.tvl,
                 mint_x: p.mint_x ?? p.token_x?.address,
                 mint_y: p.mint_y ?? p.token_y?.address,
