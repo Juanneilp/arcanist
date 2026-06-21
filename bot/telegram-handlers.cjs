@@ -291,18 +291,18 @@ async function openCommand(ctx) {
         
         const minBinStep = config.meteoraConfig?.minBinStep || 0;
         const maxBinStep = config.meteoraConfig?.maxBinStep || 1000;
-        const minFee = config.meteoraConfig?.minFee;
-        const maxFee = config.meteoraConfig?.maxFee;
+        const minFeePercent = config.meteoraConfig?.minFeePercent;
+        const maxFeePercent = config.meteoraConfig?.maxFeePercent;
         
         const filteredPools = pools.filter(p => {
             const passBinStep = p.bin_step >= minBinStep && p.bin_step <= maxBinStep;
-            const passFee = (minFee === undefined || p.base_fee_pct >= minFee) &&
-                            (maxFee === undefined || p.base_fee_pct <= maxFee);
+            const passFee = (minFeePercent === undefined || p.base_fee_pct >= minFeePercent) &&
+                            (maxFeePercent === undefined || p.base_fee_pct <= maxFeePercent);
             return passBinStep && passFee;
         });
         
         if (filteredPools.length === 0) {
-            return ctx.reply(`❌ No active DLMM pools found within limits (Bin: ${minBinStep}-${maxBinStep}, Fee: ${minFee ?? 'any'}-${maxFee ?? 'any'}) for ${tokenMint}.`);
+            return ctx.reply(`❌ No active DLMM pools found within limits (Bin: ${minBinStep}-${maxBinStep}, Fee%: ${minFeePercent ?? 'any'}-${maxFeePercent ?? 'any'}) for ${tokenMint}.`);
         }
         
         const bestPool = filteredPools.sort((a, b) => {

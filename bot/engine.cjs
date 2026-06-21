@@ -126,12 +126,12 @@ async function processCandidates(options = {}) {
                 const allowedQuoteTokens = botConfig.allowedQuoteTokens || ['SOL'];
                 const pools = await fetchMeteoraPools(token.address, allowedQuoteTokens);
         
-                const minFee = botConfig.minFee;
-                const maxFee = botConfig.maxFee;
+                const minFeePercent = botConfig.minFeePercent;
+                const maxFeePercent = botConfig.maxFeePercent;
                 const filteredPools = pools.filter(p => {
                     const passBinStep = p.bin_step >= botConfig.minBinStep && p.bin_step <= botConfig.maxBinStep;
-                    const passFee = (minFee === undefined || p.base_fee_pct >= minFee) &&
-                                    (maxFee === undefined || p.base_fee_pct <= maxFee);
+                    const passFee = (minFeePercent === undefined || p.base_fee_pct >= minFeePercent) &&
+                                    (maxFeePercent === undefined || p.base_fee_pct <= maxFeePercent);
                     return passBinStep && passFee;
                 });
                 
