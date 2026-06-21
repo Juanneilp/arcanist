@@ -50,9 +50,17 @@ async function runBot() {
         }
     }
     const botMode = userConfig.botMode || "dry_run";
+    const entryMode = userConfig.monitoringConfig?.entryMode || "auto";
+    const autoEntry = entryMode === "auto";
 
-    console.log(`Starting Arcanist DLMM Bot in ${botMode.toUpperCase()} mode...`);
-    sendMessage(`🚀 *Arcanist DLMM Bot Started*\nMode: *${botMode.toUpperCase()}*`);
+    console.log(`Starting Arcanist DLMM Bot in ${botMode.toUpperCase()} mode (Entry: ${entryMode.toUpperCase()})...`);
+    let startMsg = `🚀 *Arcanist DLMM Bot Started*\nMode: *${botMode.toUpperCase()}*`;
+    if (entryMode === 'manual') {
+        startMsg += `\n⚠️ *Auto-Entry Disabled*\nBot is in MANUAL mode. Auto Scraper is paused to prevent spam.\nUse \`/scraper\` command in Telegram to manually scan and deploy DLMM positions.`;
+    } else {
+        startMsg += `\n🤖 *Entry Mode: AUTO*`;
+    }
+    sendMessage(startMsg);
     
     if (!process.env.RPC_URL) {
         console.error("Missing RPC_URL in .env");
@@ -91,8 +99,6 @@ async function runBot() {
     }
 
     const botConfig = userConfig.meteoraConfig || { maxSolPerPosition: 0.15, minSolToOpen: 0.21, gasReserve: 0.1, refundableReserve: 0.05, minBinStep: 80, maxBinStep: 125, minRange: 86, maxRange: 94, strategyType: 0 };
-    const entryMode = userConfig.monitoringConfig?.entryMode || "auto";
-    const autoEntry = entryMode === "auto";
     const maxPositions = userConfig.monitoringConfig?.maxActivePositions || 2;
 
     // Start Monitoring Loop (For Exit Conditions)
@@ -176,14 +182,20 @@ async function runBot() {
 
         const currentConfigPath = path.join(__dirname, '..', 'user-config.json');
         let currentMaxPositions = 1;
+        let currentEntryMode = 'auto';
         try {
             const currentConfig = JSON.parse(fs.readFileSync(currentConfigPath, 'utf-8'));
             currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || 1;
+            currentEntryMode = currentConfig.monitoringConfig?.entryMode || 'auto';
         } catch(e) {}
 
         let msg = `📊 *Wallet & Open Positions*\n─────────────────\n`;
         msg += `💳 *Wallet Balance*: ${solBalance.toFixed(4)} SOL\n`;
         msg += `📈 *Active*: ${currentActivePositions.length}/${currentMaxPositions} Limit\n─────────────────\n\n`;
+
+        if (currentEntryMode === 'manual') {
+            msg += `⚠️ *Auto-Entry Disabled (MANUAL Mode)*\nUse \`/scraper\` to scan & deploy manually.\n\n`;
+        }
 
         if (currentActivePositions.length === 0) {
             msg += `No active positions.`;
@@ -351,6 +363,11 @@ async function runBot() {
                 return;
             }
             
+            if (currentConfig.monitoringConfig?.entryMode === 'manual') {
+                console.log(`[Scraper] Entry mode is MANUAL. Skipping auto-scraper to prevent spam.`);
+                return;
+            }
+            
             const currentMaxPositions = currentConfig.monitoringConfig?.maxActivePositions || 2;
             const rawActivePositions = readState();
             // De-duplicate by positionPubKey for accurate slot counting
@@ -428,6 +445,8 @@ async function runBot() {
         const uniqueStartup = [...new Map(rawStartupPositions.map(p => [p.positionPubKey, p])).values()];
         if (uniqueStartup.length >= currentMaxPositions) {
             console.log(`[Startup] Active positions (${uniqueStartup.length}) reached max limit (${currentMaxPositions}). Skipping initial scraper.`);
+        } else if (!autoEntry) {
+            console.log(`[Startup] Entry mode is MANUAL. Skipping initial scrape and screening.`);
         } else {
             isScraperRunning = true;
             try {
