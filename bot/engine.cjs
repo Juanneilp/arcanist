@@ -176,11 +176,16 @@ async function processCandidates(options = {}) {
                 console.log(`[${botMode.toUpperCase()}] Adding Single-Sided SOL Liquidity to ${targetPool.address} (Bin Step: ${targetPool.bin_step})...`);
                 const result = await addLiquidity(connection, walletKeypair, targetPool.address, WSOL_MINT, solLamportsToLP, botConfig.minRange, botConfig.maxRange, { type: botConfig.strategyType }, botMode);
                 
-                // Guard: Check if deploy was skipped due to non-refundable cost
+                // Guard: Check if deploy was skipped
                 if (result && result.status === "skipped") {
                     const cleanSymbol = token.symbol ? token.symbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
-                    console.log(`[Skip] ${token.symbol}: Deploy skipped - ${result.reason}. Cost: ${result.cost} SOL`);
-                    sendMessage(`⚠️ *Deploy Skipped: ${cleanSymbol}*\nReason: Non-refundable binArray cost detected!\nCost: ~${result.cost?.toFixed(4) || '?'} SOL (${result.binArrayCount || '?'} binArrays)\nPool: \`${targetPool.address}\``);
+                    if (result.reason === "insufficient_balance") {
+                        console.log(`[Skip] ${token.symbol}: Deploy skipped - ${result.reason}. Needed: ${result.requiredSol} SOL`);
+                        sendMessage(`⚠️ *Deploy Skipped: ${cleanSymbol}*\nReason: Insufficient balance for setup + liquidity.\nNeeded: ~${result.requiredSol?.toFixed(4)} SOL\nWallet: ${result.currentBalanceSol?.toFixed(4)} SOL\nPool: \`${targetPool.address}\``);
+                    } else {
+                        console.log(`[Skip] ${token.symbol}: Deploy skipped - ${result.reason}. Cost: ${result.cost} SOL`);
+                        sendMessage(`⚠️ *Deploy Skipped: ${cleanSymbol}*\nReason: Non-refundable binArray cost detected!\nCost: ~${result.cost?.toFixed(4) || '?'} SOL (${result.binArrayCount || '?'} binArrays)\nPool: \`${targetPool.address}\``);
+                    }
                     continue;
                 }
                 

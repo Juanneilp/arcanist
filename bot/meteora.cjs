@@ -146,6 +146,22 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
         console.log(`[QUOTE] Safe to deploy! No non-refundable cost.`);
 
         if (mode === "live") {
+            const totalSetupCostSol = positionRentSol + reallocCostSol + bitmapExtCostSol;
+            // gas buffer 0.005 SOL to cover priority fees and base fees for multiple txs
+            const gasBufferSol = 0.005;
+            const requiredSol = (solLamports / 1e9) + totalSetupCostSol + gasBufferSol;
+            
+            const currentBalance = await connection.getBalance(walletKeypair.publicKey);
+            const currentBalanceSol = currentBalance / 1e9;
+            if (currentBalanceSol < requiredSol) {
+                console.log(`[SKIP] Skipping deploy: Insufficient balance to cover liquidity + setup costs! Needed: ~${requiredSol.toFixed(4)} SOL, Wallet: ${currentBalanceSol.toFixed(4)} SOL`);
+                return {
+                    status: "skipped",
+                    reason: "insufficient_balance",
+                    requiredSol: requiredSol,
+                    currentBalanceSol: currentBalanceSol
+                };
+            }
             if (isWideRange) {
                 console.log(`[LIVE] Sending Create Extended Empty Position transaction(s)...`);
                 const createTxs = await dlmmPool.createExtendedEmptyPosition(

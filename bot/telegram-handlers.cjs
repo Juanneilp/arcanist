@@ -334,9 +334,13 @@ async function openCommand(ctx) {
             botMode
         );
         
-        // Guard: Check if deploy was skipped due to non-refundable cost
+        // Guard: Check if deploy was skipped
         if (positionResult && positionResult.status === "skipped") {
-            return ctx.reply(`⚠️ *Deploy Skipped!*\nReason: Non-refundable binArray cost detected!\nCost: ~${positionResult.cost?.toFixed(4) || '?'} SOL (${positionResult.binArrayCount || '?'} binArrays)\n\nTunggu hingga bin range ini sudah diinisialisasi oleh LP lain, atau pilih range yang lebih sempit.`, { parse_mode: 'Markdown' });
+            if (positionResult.reason === "insufficient_balance") {
+                return ctx.reply(`⚠️ *Deploy Skipped!*\nReason: Insufficient balance for setup + liquidity.\nNeeded: ~${positionResult.requiredSol?.toFixed(4)} SOL\nWallet: ${positionResult.currentBalanceSol?.toFixed(4)} SOL\n\nKurangi jumlah deposit atau siapkan saldo lebih untuk menutupi biaya setup.`, { parse_mode: 'Markdown' });
+            } else {
+                return ctx.reply(`⚠️ *Deploy Skipped!*\nReason: Non-refundable binArray cost detected!\nCost: ~${positionResult.cost?.toFixed(4) || '?'} SOL (${positionResult.binArrayCount || '?'} binArrays)\n\nTunggu hingga bin range ini sudah diinisialisasi oleh LP lain, atau pilih range yang lebih sempit.`, { parse_mode: 'Markdown' });
+            }
         }
         
         if (positionResult) {
