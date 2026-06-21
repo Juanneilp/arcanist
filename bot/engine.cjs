@@ -128,12 +128,37 @@ async function processCandidates(options = {}) {
         
                 const filteredPools = pools.filter(p => p.bin_step >= botConfig.minBinStep && p.bin_step <= botConfig.maxBinStep);
                 
-                if (filteredPools.length === 0) {
-                    console.warn(`No matching Meteora pool found for ${token.symbol}/SOL with bin steps between ${botConfig.minBinStep} and ${botConfig.maxBinStep}.`);
+                let finalPools = [];
+                const allowOnlyYFees = botConfig.allowOnlyYFees !== undefined ? botConfig.allowOnlyYFees : true;
+                
+                if (!allowOnlyYFees && filteredPools.length > 0) {
+                    const DLMM = require('@meteora-ag/dlmm');
+                    const { PublicKey } = require('@solana/web3.js');
+                    for (const p of filteredPools) {
+                        try {
+                            const poolAddressObj = new PublicKey(p.address);
+                            const dlmmPool = await DLMM.create(connection, poolAddressObj);
+                            const collectFeeMode = dlmmPool.lbPair.parameters.collectFeeMode;
+                            // 1 = OnlyY (fees hanya di token Y / quote token)
+                            if (collectFeeMode === 1) {
+                                console.log(`[Skip] Pool ${p.address} filtered out because allowOnlyYFees is false and pool has OnlyY fees.`);
+                                continue;
+                            }
+                        } catch (err) {
+                            console.error(`Failed to fetch collectFeeMode for ${p.address}: ${err.message}`);
+                        }
+                        finalPools.push(p);
+                    }
+                } else {
+                    finalPools = filteredPools;
+                }
+                
+                if (finalPools.length === 0) {
+                    console.warn(`No matching Meteora pool found for ${token.symbol}/SOL with bin steps between ${botConfig.minBinStep} and ${botConfig.maxBinStep} and fee filter.`);
                     continue;
                 }
                 
-                const targetPool = filteredPools.sort((a, b) => {
+                const targetPool = finalPools.sort((a, b) => {
                     if (b.avg_fees_per_min !== a.avg_fees_per_min) {
                         return (b.avg_fees_per_min || 0) - (a.avg_fees_per_min || 0);
                     }

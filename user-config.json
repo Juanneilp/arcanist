@@ -46,7 +46,7 @@
     }
   },
   "meteoraConfig": {
-    "solPerPosition": 0.3,
+    "solPerPosition": 2,
     "minSolToOpen": 0.21,
     "allowedQuoteTokens": [
       "SOL"
@@ -54,17 +54,18 @@
     "gasReserve": 0.1,
     "refundableReserve": 0.2,
     "minBinStep": 80,
-    "maxBinStep": 125,
+    "maxBinStep": 200,
     "minRange": -85,
     "maxRange": 1,
-    "strategyType": 0
+    "strategyType": 0,
+    "allowOnlyYFees": true
   },
   "monitoringConfig": {
     "checkIntervalSeconds": 30,
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
-    "maxActivePositions": 2,
-    "entryMode": "auto",
+    "maxActivePositions": 1,
+    "entryMode": "manual",
     "closeMode": "auto",
     "pnlCurrency": "USD"
   },
