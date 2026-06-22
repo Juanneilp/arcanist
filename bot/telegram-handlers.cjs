@@ -979,6 +979,7 @@ function buildSettingsKeyboard(config) {
     return Markup.inlineKeyboard([
         [Markup.button.callback(`Bot Mode: ${botMode.toUpperCase()}`, 'set_param_botMode')],
         [Markup.button.callback(`Entry Mode: ${(monitor.entryMode || 'auto').toUpperCase()}`, 'set_param_entryMode')],
+        [Markup.button.callback(`Strategy Type: ${(meteora.strategyType || 'spot').toUpperCase()}`, 'set_param_strategyType')],
         [Markup.button.callback(`Sol/Pos: ${meteora.solPerPosition || 0.1}`, 'set_param_solPerPosition'), Markup.button.callback(`Max Pos: ${monitor.maxActivePositions || 1}`, 'set_param_maxActivePositions')],
         [Markup.button.callback(`Min Bin: ${meteora.minBinStep || 0}`, 'set_param_minBinStep'), Markup.button.callback(`Max Bin: ${meteora.maxBinStep || 100}`, 'set_param_maxBinStep')],
         [Markup.button.callback(`Min Fee: ${meteora.minFeePercent || 0}%`, 'set_param_minFeePercent'), Markup.button.callback(`Max Fee: ${meteora.maxFeePercent || 5}%`, 'set_param_maxFeePercent')],
@@ -1019,6 +1020,13 @@ async function settingsAction(ctx) {
             config.monitoringConfig.closeMode = config.monitoringConfig.entryMode;
         } else if (paramName === 'allowOnlyYFees') {
             config.meteoraConfig.allowOnlyYFees = config.meteoraConfig.allowOnlyYFees === false ? true : false;
+        } else if (paramName === 'strategyType') {
+            const current = (config.meteoraConfig.strategyType || 'spot').toLowerCase();
+            let next = 'spot';
+            if (current === 'spot') next = 'curve';
+            else if (current === 'curve') next = 'bid-ask';
+            
+            config.meteoraConfig.strategyType = next;
         } else {
             userSettingState[ctx.from.id] = paramName;
             await ctx.answerCbQuery();
