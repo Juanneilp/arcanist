@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'arcanist',
+      name: 'arcanistmain',
       script: './bot/main.cjs',
       watch: false,
       env: {

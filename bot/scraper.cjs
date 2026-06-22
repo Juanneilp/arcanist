@@ -164,8 +164,12 @@ async function fetchKlineData(address, timeframe) {
         });
         const response = JSON.parse(stdout);
         if (response.list) return response.list;
+        if (response.code !== undefined && response.code !== 0) {
+            console.error(`[Kline API Error] ${response.msg}`);
+        }
         return null;
     } catch (e) {
+        console.error(`[fetchKlineData Error] ${e.message}`);
         return null;
     }
 }
@@ -266,10 +270,9 @@ async function runScraper() {
                 const token = fundamentalFilteredTokens[i];
                 process.stdout.write(`[${i+1}/${fundamentalFilteredTokens.length}] Checking chart for ${token.symbol}... `);
                 
-                // Add a 1.5 second delay between requests to prevent GMGN "Too Many Requests" (Rate Limit)
-                if (i > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                }
+                // Add a 2 second delay before every kline fetch (including the first one) to prevent GMGN Rate Limit
+                // The trending API was just called, so we need to wait before calling kline API.
+                await new Promise(resolve => setTimeout(resolve, 2000));
                 
                 const klines = await fetchKlineData(token.address, timeframe);
                 if (!klines || klines.length === 0) {
