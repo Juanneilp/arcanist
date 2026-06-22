@@ -257,7 +257,7 @@ async function openCommand(ctx) {
     const botMode = config.botMode || 'live';
     const minRange = config.meteoraConfig?.minRange ?? -90;
     const maxRange = config.meteoraConfig?.maxRange ?? 1;
-    const strategyType = config.meteoraConfig?.strategyType ?? 0;
+    const strategyType = config.meteoraConfig?.strategyType ?? "spot";
     
     ctx.reply(`⏳ Checking wallet balance and pools for ${tokenMint}...`);
     try {

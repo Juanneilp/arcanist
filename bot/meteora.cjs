@@ -5,6 +5,15 @@ const BN = require('bn.js');
 const { fetchWithRetry, rpcRetryWrapper } = require('./api-utils.cjs');
 
 // --- METEORA LOGIC ---
+function resolveStrategyType(type) {
+    if (typeof type === 'number') return type;
+    if (typeof type === 'string') {
+        const lower = type.toLowerCase();
+        if (lower === 'curve') return 1;
+        if (lower === 'bid-ask' || lower === 'bidask') return 2;
+    }
+    return 0; // Default to Spot
+}
 async function fetchMeteoraPools(query, allowedQuoteTokens = []) {
     console.log(`Searching for Meteora DLMM pools for ${query}...`);
     try {
@@ -108,7 +117,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
             strategy: {
                 maxBinId: maxBin,
                 minBinId: minBin,
-                strategyType: strategyOptions.type || 0
+                strategyType: resolveStrategyType(strategyOptions.type)
             }
         });
 
@@ -210,7 +219,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     strategy: {
                         maxBinId: maxBin,
                         minBinId: minBin,
-                        strategyType: strategyOptions.type || 0
+                        strategyType: resolveStrategyType(strategyOptions.type)
                     },
                     slippage: 10 // 10%
                 });
@@ -242,7 +251,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     strategy: {
                         maxBinId: maxBin,
                         minBinId: minBin,
-                        strategyType: strategyOptions.type || 0
+                        strategyType: resolveStrategyType(strategyOptions.type)
                     },
                     slippage: 1000 // 10% in bps
                 });

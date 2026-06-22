@@ -1,5 +1,5 @@
 {
-  "botMode": "dry_run",
+  "botMode": "live",
   "apiSettings": {
     "chain": "sol",
     "platform": [
@@ -46,7 +46,7 @@
     }
   },
   "meteoraConfig": {
-    "solPerPosition": 2,
+    "solPerPosition": 1,
     "minSolToOpen": 0.21,
     "allowedQuoteTokens": [
       "SOL"
@@ -59,7 +59,7 @@
     "maxFeePercent": 5,
     "minRange": -85,
     "maxRange": 1,
-    "strategyType": 0,
+    "strategyType": "spot",
     "allowOnlyYFees": true
   },
   "monitoringConfig": {
