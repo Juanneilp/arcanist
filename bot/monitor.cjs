@@ -83,12 +83,14 @@ async function evaluateExitCondition(position) {
                     return { shouldExit: true, reason: `OOR Timeout (${oorDurationMinutes.toFixed(1)}m >= ${maxOorMinutes}m)` };
                 }
             }
-            
-            return { shouldExit: false };
+            // Continue checking other conditions even if OOR
         }
 
-        const { stdout } = await spawnAsync('npx', [
-            'gmgn-cli', 'market', 'kline', 
+        // Wait 2 seconds to avoid GMGN API rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const cliPath = path.join(__dirname, '..', 'dist', 'index.js');
+        const { stdout } = await spawnAsync('node', [
+            cliPath, 'market', 'kline', 
             '--chain', chain, 
             '--address', position.tokenMint, 
             '--resolution', '15m', 
@@ -163,6 +165,13 @@ async function evaluateExitCondition(position) {
         
     } catch (e) {
         console.error(`Error checking exit conditions for ${position.tokenSymbol}:`, e.message);
+        if (e.stderr && e.stderr.trim()) console.error(`stderr details:`, e.stderr.trim());
+        if (e.stdout && e.stdout.trim()) console.error(`stdout details:`, e.stdout.trim());
+        
+        // If API fails, we skip this cycle, but we should at least log it clearly.
+        if (!e.stderr && !e.stdout) {
+            console.error(`[GMGN API] Command execution failed without output. Possibly rate limited or timeout.`);
+        }
     }
     
     return { shouldExit: false };

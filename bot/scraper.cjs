@@ -153,8 +153,9 @@ async function fetchKlineData(address, timeframe) {
         return null;
     }
     try {
-        const { stdout } = await spawnAsync('npx', [
-            'gmgn-cli', 'market', 'kline',
+        const cliPath = path.join(__dirname, '..', 'dist', 'index.js');
+        const { stdout } = await spawnAsync('node', [
+            cliPath, 'market', 'kline',
             '--chain', apiSettings.chain,
             '--address', address,
             '--resolution', timeframe,
@@ -205,7 +206,8 @@ async function runScraper() {
         }
         args.push('--raw');
 
-        const { stdout } = await spawnAsync('npx', args, {
+        const cliPath = path.join(__dirname, '..', 'dist', 'index.js');
+        const { stdout } = await spawnAsync('node', [cliPath, ...args.slice(1)], {
             env: { ...process.env, GMGN_API_KEY: apiKey }
         });
         const response = JSON.parse(stdout);
