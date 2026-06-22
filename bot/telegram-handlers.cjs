@@ -968,6 +968,115 @@ async function currencyCommand(ctx) {
     }
 }
 
+// --- SETTINGS UI ---
+const userSettingState = {};
+
+function buildSettingsKeyboard(config) {
+    const meteora = config.meteoraConfig || {};
+    const monitor = config.monitoringConfig || {};
+    const botMode = config.botMode || 'live';
+
+    return Markup.inlineKeyboard([
+        [Markup.button.callback(`Bot Mode: ${botMode.toUpperCase()}`, 'set_param_botMode')],
+        [Markup.button.callback(`Entry Mode: ${(monitor.entryMode || 'auto').toUpperCase()}`, 'set_param_entryMode')],
+        [Markup.button.callback(`Sol/Pos: ${meteora.solPerPosition || 0.1}`, 'set_param_solPerPosition'), Markup.button.callback(`Max Pos: ${monitor.maxActivePositions || 1}`, 'set_param_maxActivePositions')],
+        [Markup.button.callback(`Min Bin: ${meteora.minBinStep || 0}`, 'set_param_minBinStep'), Markup.button.callback(`Max Bin: ${meteora.maxBinStep || 100}`, 'set_param_maxBinStep')],
+        [Markup.button.callback(`Min Fee: ${meteora.minFeePercent || 0}%`, 'set_param_minFeePercent'), Markup.button.callback(`Max Fee: ${meteora.maxFeePercent || 5}%`, 'set_param_maxFeePercent')],
+        [Markup.button.callback(`Min Range: ${meteora.minRange || 0}`, 'set_param_minRange'), Markup.button.callback(`Max Range: ${meteora.maxRange || 1}`, 'set_param_maxRange')],
+        [Markup.button.callback(`Only Y Fees: ${meteora.allowOnlyYFees !== false ? '✅ Yes' : '❌ No'}`, 'set_param_allowOnlyYFees')]
+    ]);
+}
+
+async function settingsCommand(ctx) {
+    try {
+        const configPath = path.join(__dirname, '..', 'user-config.json');
+        if (!fs.existsSync(configPath)) return ctx.reply("❌ user-config.json not found.");
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        
+        await ctx.reply("⚙️ *Bot Settings*\nClick a button to toggle its value or enter a new value:", {
+            parse_mode: 'Markdown',
+            ...buildSettingsKeyboard(config)
+        });
+    } catch (e) {
+        ctx.reply("❌ Error loading settings: " + e.message);
+    }
+}
+
+async function settingsAction(ctx) {
+    try {
+        const paramName = ctx.match[1];
+        const configPath = path.join(__dirname, '..', 'user-config.json');
+        if (!fs.existsSync(configPath)) return ctx.answerCbQuery("❌ user-config.json not found", { show_alert: true });
+        let config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        
+        if (!config.meteoraConfig) config.meteoraConfig = {};
+        if (!config.monitoringConfig) config.monitoringConfig = {};
+
+        if (paramName === 'botMode') {
+            config.botMode = config.botMode === 'live' ? 'dry_run' : 'live';
+        } else if (paramName === 'entryMode') {
+            config.monitoringConfig.entryMode = config.monitoringConfig.entryMode === 'auto' ? 'manual' : 'auto';
+            config.monitoringConfig.closeMode = config.monitoringConfig.entryMode;
+        } else if (paramName === 'allowOnlyYFees') {
+            config.meteoraConfig.allowOnlyYFees = config.meteoraConfig.allowOnlyYFees === false ? true : false;
+        } else {
+            userSettingState[ctx.from.id] = paramName;
+            await ctx.answerCbQuery();
+            return ctx.reply(`✏️ Please type the new value for *${paramName}*:\n(Type /cancel to abort)`, { parse_mode: 'Markdown' });
+        }
+
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        try {
+            await ctx.editMessageReplyMarkup(buildSettingsKeyboard(config).reply_markup);
+        } catch(e) {}
+        
+        await ctx.answerCbQuery("✅ Settings updated!");
+    } catch (e) {
+        ctx.answerCbQuery("❌ Error: " + e.message, { show_alert: true });
+    }
+}
+
+async function textHandler(ctx) {
+    try {
+        const userId = ctx.from?.id;
+        if (!userId || !userSettingState[userId]) {
+            return; // Not waiting for input
+        }
+        
+        const paramName = userSettingState[userId];
+        const textValue = ctx.message.text.trim();
+        
+        if (textValue.toLowerCase() === '/cancel') {
+            delete userSettingState[userId];
+            return ctx.reply("❌ Operation cancelled.");
+        }
+        
+        const numericValue = Number(textValue);
+        if (isNaN(numericValue)) {
+            return ctx.reply("❌ Invalid format. Please enter a valid number, or type /cancel to cancel.");
+        }
+        
+        const configPath = path.join(__dirname, '..', 'user-config.json');
+        let config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (!config.meteoraConfig) config.meteoraConfig = {};
+        if (!config.monitoringConfig) config.monitoringConfig = {};
+        
+        if (paramName === 'maxActivePositions') {
+            config.monitoringConfig[paramName] = numericValue;
+        } else {
+            config.meteoraConfig[paramName] = numericValue;
+        }
+        
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        delete userSettingState[userId];
+        
+        await ctx.reply(`✅ *${paramName}* has been updated to \`${numericValue}\`.`, { parse_mode: 'Markdown' });
+        await settingsCommand(ctx); // Show updated menu
+    } catch (e) {
+        ctx.reply("❌ Error saving setting: " + e.message);
+    }
+}
+
 module.exports = {
     authGuard,
     sendPositionsCommand,
@@ -986,5 +1095,8 @@ module.exports = {
     unblacklistCommand,
     viewBlacklistCommand,
     chatCommand,
-    currencyCommand
+    currencyCommand,
+    settingsCommand,
+    settingsAction,
+    textHandler
 };

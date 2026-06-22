@@ -1,5 +1,5 @@
 {
-  "botMode": "live",
+  "botMode": "dry_run",
   "apiSettings": {
     "chain": "sol",
     "platform": [

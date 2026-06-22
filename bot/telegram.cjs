@@ -25,7 +25,8 @@ if (token && token !== 'your_telegram_bot_token') {
                         `/blacklist <CA>, <Name>, <Reason> - Add token to blacklist\n` +
                         `/unblacklist <address> - Remove token from blacklist\n` +
                         `/viewblacklist - View blacklisted tokens\n` +
-                        `/chat [message] - Chat with Hermes AI Analyst`;
+                        `/chat [message] - Chat with Hermes AI Analyst\n` +
+                        `/settings - Interactive bot settings UI`;
         ctx.reply(helpMsg);
     });
     bot.start(handlers.authGuard, (ctx) => ctx.reply("Welcome to Arcanist Bot! Type /help to see available commands."));
@@ -46,10 +47,15 @@ if (token && token !== 'your_telegram_bot_token') {
     bot.command('unblacklist', handlers.authGuard, handlers.unblacklistCommand);
     bot.command('viewblacklist', handlers.authGuard, handlers.viewBlacklistCommand);
     bot.command('chat', handlers.authGuard, handlers.chatCommand);
+    bot.command('settings', handlers.authGuard, handlers.settingsCommand);
 
     // Actions
     bot.action('confirm_close_all', handlers.authGuard, handlers.confirmCloseAllAction);
     bot.action('cancel_close_all', handlers.authGuard, handlers.cancelCloseAllAction);
+    bot.action(/^set_param_(.+)$/, handlers.authGuard, handlers.settingsAction);
+
+    // Text Handler for settings input
+    bot.on('text', handlers.authGuard, handlers.textHandler);
 
     bot.catch((err, ctx) => {
         console.error(`Ooops, encountered an error for ${ctx.updateType}`, err);
@@ -76,7 +82,8 @@ if (token && token !== 'your_telegram_bot_token') {
                     { command: 'chat', description: 'Chat with Hermes AI Analyst' },
                     { command: 'blacklist', description: 'Add token to blacklist' },
                     { command: 'unblacklist', description: 'Remove token from blacklist' },
-                    { command: 'viewblacklist', description: 'View blacklisted tokens' }
+                    { command: 'viewblacklist', description: 'View blacklisted tokens' },
+                    { command: 'settings', description: 'Interactive bot settings UI' }
                 ]).catch(e => console.error("Failed to set commands:", e.message));
                 return;
             } catch (e) {
