@@ -75,7 +75,7 @@
     "minUsdDustValueToSwap": 0.2,
     "tpPercentage": 0,
     "slPercentage": 0,
-    "maxHoldHours": 32,
+    "maxHoldHours": 24,
     "absoluteMaxHoldHours": 48,
     "minHoldMinutes": 30,
     "maxOorDistance": 20,
