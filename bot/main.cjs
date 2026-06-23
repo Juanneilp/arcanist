@@ -98,7 +98,7 @@ async function runBot() {
         }
     }
 
-    const botConfig = userConfig.meteoraConfig || { maxSolPerPosition: 0.15, minSolToOpen: 0.21, gasReserve: 0.1, refundableReserve: 0.05, minBinStep: 80, maxBinStep: 125, minFeePercent: 0.1, maxFeePercent: 2.0, minRange: 86, maxRange: 94, strategyType: "spot" };
+    const botConfig = userConfig.meteoraConfig || { maxSolPerPosition: 0.15, minSolToOpen: 0.21, gasReserve: 0.1, refundableReserve: 0.05, minBinStep: 80, maxBinStep: 125, minFeePercent: 0.1, maxFeePercent: 2.0, minRange: 86, maxRange: 94, strategyType: 0 };
     const maxPositions = userConfig.monitoringConfig?.maxActivePositions || 2;
 
     // Start Monitoring Loop (For Exit Conditions)

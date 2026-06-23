@@ -1,8 +1,8 @@
-const { spawn } = require('child_process');
-const util = require('util');
 const fs = require('fs');
 const path = require('path');
-const { spawnAsync } = require('./api-utils.cjs');
+
+const { getTrending, getKline } = require('./gmgn-client.cjs');
+const { hasActiveDlmmPool } = require('./meteora-client.cjs');
 
 require('./envcrypt.cjs').loadEnv();
 
@@ -143,77 +143,31 @@ function loadConfig() {
 }
 loadConfig();
 
-console.log(`Starting GMGN Scraper...`);
-
-const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
-
-async function fetchKlineData(address, timeframe) {
-    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address) && !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        console.error(`[Security] Invalid address format detected: ${address}`);
-        return null;
-    }
-    try {
-        const cliPath = path.join(__dirname, '..', 'dist', 'index.js');
-        const { stdout } = await spawnAsync('node', [
-            cliPath, 'market', 'kline',
-            '--chain', apiSettings.chain,
-            '--address', address,
-            '--resolution', timeframe,
-            '--raw'
-        ], {
-            env: { ...process.env, GMGN_API_KEY: apiKey }
-        });
-        const response = JSON.parse(stdout);
-        if (response.list) return response.list;
-        if (response.code !== undefined && response.code !== 0) {
-            console.error(`[Kline API Error] ${response.msg}`);
-        }
-        return null;
-    } catch (e) {
-        console.error(`[fetchKlineData Error] ${e.message}`);
-        return null;
-    }
-}
+console.log(`Starting GMGN Scraper (direct API)...`);
 
 async function runScraper() {
     loadConfig();
-    console.log(`Executing API Request for Trending Tokens...`);
+    console.log(`[Scraper] Fetching trending tokens via GMGN API...`);
     try {
-        const args = [
-            'gmgn-cli', 'market', 'trending', 
-            '--chain', apiSettings.chain, 
-            '--interval', apiSettings.interval, 
-            '--limit', apiSettings.limit.toString()
-        ];
-        
-        if (apiSettings.platform) {
-            if (Array.isArray(apiSettings.platform)) {
-                apiSettings.platform.forEach(p => {
-                    args.push('--platform', p);
-                });
-            } else if (typeof apiSettings.platform === 'string') {
-                const platforms = apiSettings.platform.split(',').map(s => s.trim());
-                platforms.forEach(p => {
-                    args.push('--platform', p);
-                });
-            }
-        }
-
-        if (apiSettings.apiFilters && Array.isArray(apiSettings.apiFilters)) {
-            apiSettings.apiFilters.forEach(filter => {
-                args.push('--filter', filter);
-            });
-        }
-        args.push('--raw');
-
-        const cliPath = path.join(__dirname, '..', 'dist', 'index.js');
-        const { stdout } = await spawnAsync('node', [cliPath, ...args.slice(1)], {
-            env: { ...process.env, GMGN_API_KEY: apiKey }
+        // Phase 1: Discovery — GMGN Trending (direct HTTP)
+        const tokens = await getTrending({
+            chain: apiSettings.chain,
+            interval: apiSettings.interval,
+            limit: apiSettings.limit,
+            filters: apiSettings.apiFilters,
+            platforms: apiSettings.platform,
         });
-        const response = JSON.parse(stdout);
-        if (response.code !== 0) return console.error(`API Error: ${response.msg}`);
 
-        const tokens = response.data.rank || [];
+        if (!tokens || tokens.length === 0) {
+            console.error(`[Scraper] No trending tokens returned from GMGN API.`);
+            return;
+        }
+
+        console.log(`[Scraper] GMGN API returned ${tokens.length} trending tokens`);
+
+        // ==========================================
+        // Phase 2: Fundamental Filters (existing logic)
+        // ==========================================
         const fundamentalFilteredTokens = tokens.filter(token => {
             if (blacklist && blacklist.some(b => (typeof b === 'string' ? b : b.address) === token.address)) return false;
             const marketCap = parseFloat(token.market_cap) || 0;
@@ -262,27 +216,66 @@ async function runScraper() {
                    passAdvancedFilters;
         });
 
+        console.log(`[Scraper] ${fundamentalFilteredTokens.length}/${tokens.length} tokens passed fundamental filters`);
+
+        // ==========================================
+        // Phase 3: Meteora DLMM Pool Check (BARU)
+        // ==========================================
+        console.log(`[Scraper] Checking ${fundamentalFilteredTokens.length} tokens for active DLMM pools...`);
+        const poolFilteredTokens = [];
+
+        // Batch check with Promise.allSettled — one failure doesn't block others
+        const poolChecks = await Promise.allSettled(
+            fundamentalFilteredTokens.map(async (token) => {
+                const hasPool = await hasActiveDlmmPool(token.address, { minTvl: 100 });
+                return { token, hasPool };
+            })
+        );
+
+        for (const result of poolChecks) {
+            if (result.status === 'fulfilled' && result.value.hasPool) {
+                poolFilteredTokens.push(result.value.token);
+            } else {
+                const sym = result.value?.token?.symbol || 'unknown';
+                console.log(`  ⚠️ ${sym} — no active DLMM pool found, skipped`);
+            }
+        }
+
+        console.log(`[Scraper] ${poolFilteredTokens.length}/${fundamentalFilteredTokens.length} tokens have active DLMM pools`);
+
+        if (poolFilteredTokens.length === 0) {
+            console.log(`[+] No candidates with DLMM pools passed the filters.`);
+            const { sendMessage } = require('./telegram.cjs');
+            sendMessage(`🔍 *Scraper Run Finished:*\nNo candidates with active DLMM pools passed the filters.`);
+            return;
+        }
+
+        // ==========================================
+        // Phase 4: Technical Analysis (Supertrend + Volume Trend)
+        // ==========================================
         const finalTokens = [];
         const stConf = techFilters.supertrend || { enabled: false };
         const vtConf = techFilters.volumeTrend || { enabled: false };
 
         if (stConf.enabled || vtConf.enabled) {
             const timeframe = stConf.enabled ? stConf.timeframe : "15m";
-            for (let i = 0; i < fundamentalFilteredTokens.length; i++) {
-                const token = fundamentalFilteredTokens[i];
-                process.stdout.write(`[${i+1}/${fundamentalFilteredTokens.length}] Checking chart for ${token.symbol}... `);
+            for (let i = 0; i < poolFilteredTokens.length; i++) {
+                const token = poolFilteredTokens[i];
+                process.stdout.write(`[${i+1}/${poolFilteredTokens.length}] Checking chart for ${token.symbol}... `);
                 
-                // Add a 2 second delay before every kline fetch (including the first one) to prevent GMGN Rate Limit
-                // The trending API was just called, so we need to wait before calling kline API.
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                const klines = await fetchKlineData(token.address, timeframe);
-                if (!klines || klines.length === 0) {
+                // GMGN client handles global pacing internally
+                const klineResult = await getKline({
+                    chain: apiSettings.chain,
+                    address: token.address,
+                    resolution: timeframe,
+                });
+
+                if (!klineResult || !klineResult.list || klineResult.list.length === 0) {
                     console.log(`Failed to fetch K-Line data.`);
                     continue;
                 }
 
-                const sortedKlines = klines.sort((a, b) => a.time - b.time).map(k => ({
+                const sortedKlines = klineResult.list.sort((a, b) => a.time - b.time).map(k => ({
                     open: parseFloat(k.open),
                     high: parseFloat(k.high),
                     low: parseFloat(k.low),
@@ -353,9 +346,12 @@ async function runScraper() {
                 finalTokens.push(token);
             }
         } else {
-            finalTokens.push(...fundamentalFilteredTokens);
+            finalTokens.push(...poolFilteredTokens);
         }
 
+        // ==========================================
+        // Phase 5: Output
+        // ==========================================
         const outputPath = path.join(__dirname, '..', 'candidates.json');
         fs.writeFileSync(outputPath, JSON.stringify(finalTokens, null, 2));
         console.log(`\n[+] Saved ${finalTokens.length} candidates to ${outputPath}`);
@@ -395,7 +391,7 @@ async function runScraper() {
                 if (t.is_new_ath) statsStr += `\n🚀 *STATUS: NEW ATH DETECTED*`;
                 tgMsg += `${statsStr}\n`;
                 
-                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k & Degens >= ${localFilters.minSmartDegenCount} & Advanced Security Filters`;
+                let reasonStr = `Lolos filter: MCap > $${localFilters.minMarketCap/1000}k & Vol > $${localFilters.minVolume24h/1000}k & Degens >= ${localFilters.minSmartDegenCount} & DLMM Pool Active & Advanced Security Filters`;
                 if (techFilters.supertrend?.enabled) reasonStr += `, Supertrend Hijau`;
                 if (techFilters.volumeTrend?.enabled) reasonStr += `, Vol Trend tidak Decelerating`;
                 tgMsg += `💡 *Reason:* _${reasonStr}_\n\n`;
@@ -407,11 +403,8 @@ async function runScraper() {
             sendMessage(`🔍 *Scraper Run Finished:*\nNo candidates passed the filters.`);
         }
     } catch (e) {
-        if (e.stdout) {
-            console.error(`API Execution failed: ${e.stdout.trim()}`);
-        } else {
-            console.error(`Execution failed: ${e.message}`);
-        }
+        console.error(`[Scraper] Error: ${e.message}`);
+        if (e.stack) console.error(e.stack);
     }
 }
 

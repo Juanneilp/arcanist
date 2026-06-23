@@ -3,6 +3,8 @@ node_modules/
 
 # Environment & secrets
 .env
+.env.raw
+.envrypt
 keys/
 
 # Logs

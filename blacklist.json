@@ -13,5 +13,10 @@
     "address": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
     "name": "TOESCOIN",
     "reason": "Pool dan Avg Fees/Min $0,27"
+  },
+  {
+    "address": "8wxkvAfEns76yBzu4MnbV7VnXWjg3iDPA9uwAQ6cpump",
+    "name": "SOLANGELES",
+    "reason": "Bad metrics, Big rugs"
   }
 ]

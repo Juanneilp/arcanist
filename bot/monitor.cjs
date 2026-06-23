@@ -2,8 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { PublicKey, Connection, Keypair } = require('@solana/web3.js');
 const util = require('util');
-const { spawn } = require('child_process');
-const { spawnAsync } = require('./api-utils.cjs');
+const { getKline } = require('./gmgn-client.cjs');
 
 const { calculateRSI, calculateMACD, calculateBollingerBands } = require('./indicators.cjs');
 const { readState, removePosition, logTrade, updatePosition } = require('./state.cjs');
@@ -43,7 +42,6 @@ async function evaluateExitCondition(position) {
     const bbConf = exitConf.bb || { period: 20, multiplier: 2 };
     const macdConf = exitConf.macd || { fast: 12, slow: 26, signal: 9 };
     
-    const apiKey = process.env.GMGN_API_KEY || 'gmgn_solbscbaseethmonadtron';
     const chain = userConfig.apiSettings?.chain || 'sol';
     const fromTimestamp = Math.floor(Date.now() / 1000) - (48 * 60 * 60);
     
@@ -86,20 +84,18 @@ async function evaluateExitCondition(position) {
             // Continue checking other conditions even if OOR
         }
 
-        // Wait 2 seconds to avoid GMGN API rate limiting
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        const cliPath = path.join(__dirname, '..', 'dist', 'index.js');
-        const { stdout } = await spawnAsync('node', [
-            cliPath, 'market', 'kline', 
-            '--chain', chain, 
-            '--address', position.tokenMint, 
-            '--resolution', '15m', 
-            '--from', fromTimestamp.toString(), 
-            '--raw'
-        ], {
-            env: { ...process.env, GMGN_API_KEY: apiKey }
+        // Direct GMGN API call (replaces gmgn-cli market kline subprocess)
+        const response = await getKline({
+            chain,
+            address: position.tokenMint,
+            resolution: '15m',
+            from: fromTimestamp,
         });
-        const response = JSON.parse(stdout);
+
+        if (!response) {
+            console.log(`[Monitor] Failed to fetch kline data for ${position.tokenSymbol} via GMGN API.`);
+            return { shouldExit: false };
+        }
         
         let currentClose = null;
         if (response.list && response.list.length > 0) {
