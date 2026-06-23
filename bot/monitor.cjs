@@ -37,6 +37,7 @@ async function evaluateExitCondition(position) {
     const tpPercentage = exitConf.tpPercentage !== undefined ? exitConf.tpPercentage : 50;
     const slPercentage = exitConf.slPercentage !== undefined ? exitConf.slPercentage : 20;
     const maxHoldHours = exitConf.maxHoldHours !== undefined ? exitConf.maxHoldHours : 24;
+    const absoluteMaxHoldHours = exitConf.absoluteMaxHoldHours !== undefined ? exitConf.absoluteMaxHoldHours : 48;
     const minHoldMinutes = exitConf.minHoldMinutes !== undefined ? exitConf.minHoldMinutes : 15;
     const rsiConf = exitConf.rsi || { period: 2, upperLimit: 90 };
     const bbConf = exitConf.bb || { period: 20, multiplier: 2 };
@@ -52,9 +53,15 @@ async function evaluateExitCondition(position) {
     
     try {
         const durationHours = (Date.now() - position.timestamp) / 3600000;
+        
+        if (absoluteMaxHoldHours > 0 && durationHours >= absoluteMaxHoldHours) {
+            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Absolute Timeout hit (${durationHours.toFixed(2)}h >= ${absoluteMaxHoldHours}h)`);
+            return { shouldExit: true, reason: `Absolute Timeout hit (${durationHours.toFixed(2)}h >= ${absoluteMaxHoldHours}h)` };
+        }
+
+        let isTimeoutPhase = false;
         if (maxHoldHours > 0 && durationHours >= maxHoldHours) {
-            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: Timeout hit (${durationHours.toFixed(2)}h >= ${maxHoldHours}h)`);
-            return { shouldExit: true, reason: `Timeout hit (${durationHours.toFixed(2)}h >= ${maxHoldHours}h)` };
+            isTimeoutPhase = true;
         }
 
         const isOOR = position.activeBinId !== undefined && position.minBinId !== undefined && position.maxBinId !== undefined &&
@@ -84,11 +91,13 @@ async function evaluateExitCondition(position) {
             // Continue checking other conditions even if OOR
         }
 
+        const resolution = isTimeoutPhase ? '5m' : '15m';
+
         // Direct GMGN API call (replaces gmgn-cli market kline subprocess)
         const response = await getKline({
             chain,
             address: position.tokenMint,
-            resolution: '15m',
+            resolution: resolution,
             from: fromTimestamp,
         });
 
@@ -150,13 +159,15 @@ async function evaluateExitCondition(position) {
         const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
         
         if (rsiConditionMet && priceAboveBbUpper) {
-            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND Close > BB Upper`);
-            return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan Harga > BB Upper` };
+            const timeframeStr = isTimeoutPhase ? "5m" : "15m";
+            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND Close > BB Upper (${timeframeStr})`);
+            return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan Harga > BB Upper [${timeframeStr}]` };
         }
         
         if (rsiConditionMet && macdFirstGreenHist) {
-            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND MACD First Green Histogram`);
-            return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan trigger MACD positif` };
+            const timeframeStr = isTimeoutPhase ? "5m" : "15m";
+            console.log(`[EXIT SIGNAL] ${position.tokenSymbol}: [IN RANGE] RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} AND MACD First Green Histogram (${timeframeStr})`);
+            return { shouldExit: true, reason: `RSI(${rsiConf.period})=${currentRsi.toFixed(2)} > ${rsiConf.upperLimit} dan trigger MACD positif [${timeframeStr}]` };
         }
         
     } catch (e) {

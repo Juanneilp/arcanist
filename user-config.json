@@ -76,6 +76,7 @@
     "tpPercentage": 0,
     "slPercentage": 0,
     "maxHoldHours": 32,
+    "absoluteMaxHoldHours": 48,
     "minHoldMinutes": 30,
     "maxOorDistance": 20,
     "maxOorMinutes": 30,
