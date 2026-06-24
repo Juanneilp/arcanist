@@ -10,5 +10,6 @@ module.exports = {
     addLiquidity: meteora.addLiquidity,
     removeLiquidity: meteora.removeLiquidity,
     fetchMeteoraPositionDetails: meteora.fetchMeteoraPositionDetails,
+    claimFees: meteora.claimFees,
     syncManualPositions: sync.syncManualPositions
 };

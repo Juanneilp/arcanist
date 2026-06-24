@@ -261,6 +261,124 @@ async function monitoringLoop(connection, walletKeypair) {
                 } catch(e) {
                     console.error(`[Monitor] Error reading fresh states for ${pos.poolAddress}:`, e.message);
                 }
+                
+                const autoClaimFeesConfig = userConfig.meteoraConfig?.autoClaimFees;
+                const autoClaimFeesEnabled = typeof autoClaimFeesConfig === 'object' ? autoClaimFeesConfig?.enabled : !!autoClaimFeesConfig;
+                if (autoClaimFeesEnabled) {
+                    try {
+                        const collectFeeMode = dlmmPool.lbPair.parameters.collectFeeMode;
+                        if (collectFeeMode === 0) {
+                            const rsiConf = userConfig.exitConfig?.rsi || { period: 2, upperLimit: 90 };
+                            const bbConf = userConfig.exitConfig?.bb || { period: 20, multiplier: 2 };
+                            const macdConf = userConfig.exitConfig?.macd || { fast: 12, slow: 26, signal: 9 };
+                            
+                            const fromTimestamp = Math.floor(Date.now() / 1000) - (24 * 60 * 60);
+                            const chain = userConfig.apiSettings?.chain || 'sol';
+                            
+                            const response = await getKline({
+                                chain,
+                                address: pos.tokenMint,
+                                resolution: '5m',
+                                from: fromTimestamp,
+                            });
+                            
+                            if (response && response.list && response.list.length >= Math.max(rsiConf.period, bbConf.period, macdConf.slow) + 10) {
+                                const sortedKlines = response.list.sort((a, b) => a.time - b.time);
+                                const closes = sortedKlines.map(k => parseFloat(k.close));
+                                
+                                const rsiArr = calculateRSI(closes, rsiConf.period);
+                                const bb = calculateBollingerBands(closes, bbConf.period, bbConf.multiplier);
+                                const macd = calculateMACD(closes, macdConf.fast, macdConf.slow, macdConf.signal);
+                                
+                                const closedIdx = closes.length - 2;
+                                const indicatorClose = closes[closedIdx];
+                                const currentRsi = rsiArr[closedIdx];
+                                const currentBbUpper = bb.upper[closedIdx];
+                                const currentMacdHist = macd.histogram[closedIdx];
+                                const prevMacdHist = macd.histogram[closedIdx - 1];
+                                
+                                if (currentRsi !== null && currentBbUpper !== null && currentMacdHist !== null && prevMacdHist !== null) {
+                                    const rsiConditionMet = currentRsi > rsiConf.upperLimit;
+                                    const priceAboveBbUpper = indicatorClose > currentBbUpper;
+                                    const macdFirstGreenHist = prevMacdHist <= 0 && currentMacdHist > 0;
+                                    
+                                    const shouldClaim = rsiConditionMet && (priceAboveBbUpper || macdFirstGreenHist);
+                                    
+                                    if (shouldClaim) {
+                                        if (!pos.lastClaimCycle) {
+                                            console.log(`[Claim Fees] Conditions met for ${pos.tokenSymbol} (RSI: ${currentRsi.toFixed(2)}, Price>BBUpper: ${priceAboveBbUpper}, MACDGreen: ${macdFirstGreenHist})`);
+                                            const { claimFees, swapTokenToSol } = require('./solana-dex.cjs');
+                                            
+                                            // Calculate unclaimed fees using DLMM on-chain data
+                                            let unclaimedFeesUsd = 0;
+                                            try {
+                                                const { userPositions } = await dlmmPool.getPositionsByUserAndLbPair(walletKeypair.publicKey);
+                                                const activePosition = userPositions.find(p => p.publicKey.toBase58() === pos.positionPubKey);
+                                                
+                                                if (activePosition && activePosition.positionData) {
+                                                    const feeXAmount = Number(activePosition.positionData.feeX) / (10 ** dlmmPool.tokenX.mint.decimals);
+                                                    const feeYAmount = Number(activePosition.positionData.feeY) / (10 ** dlmmPool.tokenY.mint.decimals);
+                                                    
+                                                    const jupRes = await fetch(`https://api.jup.ag/price/v3?ids=${dlmmPool.tokenX.publicKey.toBase58()},${dlmmPool.tokenY.publicKey.toBase58()}`);
+                                                    const priceData = await jupRes.json();
+                                                    
+                                                    const priceX = priceData[dlmmPool.tokenX.publicKey.toBase58()]?.usdPrice || 0;
+                                                    const priceY = priceData[dlmmPool.tokenY.publicKey.toBase58()]?.usdPrice || 0;
+                                                    
+                                                    unclaimedFeesUsd = (feeXAmount * Number(priceX)) + (feeYAmount * Number(priceY));
+                                                }
+                                            } catch(err) {
+                                                console.error(`[Claim Fees] Error calculating live USD fees for ${pos.tokenSymbol}:`, err.message);
+                                            }
+                                            const threshold = (typeof autoClaimFeesConfig === 'object' && autoClaimFeesConfig.minClaimFeeUsd !== undefined) ? autoClaimFeesConfig.minClaimFeeUsd : 0.2;
+                                            
+                                            if (unclaimedFeesUsd >= threshold) {
+                                                pos.lastClaimCycle = true;
+                                                updatePosition(pos.positionPubKey, { lastClaimCycle: true });
+                                                
+                                                const claimSuccess = await claimFees(connection, walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
+                                                
+                                                if (claimSuccess) {
+                                                    const cleanTokenSymbol = pos.tokenSymbol ? pos.tokenSymbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                                                    sendMessage(`🤑 *Auto-Claim Fees*\\nToken: ${cleanTokenSymbol}\\nReason: Technical indicators triggered on 5m.\\nValue: ~$${unclaimedFeesUsd.toFixed(2)}\\nStatus: ✅ Claim Transaction Sent`);
+                                                    
+                                                    await new Promise(resolve => setTimeout(resolve, 3000));
+                                                
+                                                const balance = await getTokenBalance(connection, walletKeypair.publicKey, pos.tokenMint);
+                                                if (balance.uiAmount > 0) {
+                                                    sendMessage(`🔄 *Swapping Claimed Token*\\nFound ${balance.uiAmount} ${cleanTokenSymbol}. Attempting to swap to SOL...`);
+                                                    try {
+                                                        const swapResult = await swapTokenToSol(connection, walletKeypair, pos.tokenMint, balance.rawAmount, botMode);
+                                                        if (!swapResult.skipped) {
+                                                            sendMessage(`✅ Swap Success! Converted to ~${swapResult.expectedSolOut.toFixed(4)} SOL`);
+                                                        } else {
+                                                            sendMessage(`ℹ️ Swapping skipped. Value too low (~$${swapResult.usdValue.toFixed(2)}).`);
+                                                        }
+                                                    } catch (swapErr) {
+                                                        console.error(`[Claim Swap Error] Failed to swap ${cleanTokenSymbol}:`, swapErr.message);
+                                                        sendMessage(`⚠️ Swap Failed for ${cleanTokenSymbol}: ${swapErr.message}`);
+                                                    }
+                                                }
+                                            } else {
+                                                const cleanTokenSymbol = pos.tokenSymbol ? pos.tokenSymbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
+                                                sendMessage(`❌ *Auto-Claim Fees Failed*\\nToken: ${cleanTokenSymbol}`);
+                                            }
+                                        } else {
+                                            console.log(`[Claim Fees] Skipping claim for ${pos.tokenSymbol}. Unclaimed fee is only $${unclaimedFeesUsd.toFixed(2)} (< $${threshold})`);
+                                        }
+                                    }
+                                    } else if (currentRsi < rsiConf.upperLimit && pos.lastClaimCycle) {
+                                        console.log(`[Claim Fees] RSI cooled down for ${pos.tokenSymbol}. Resetting claim cycle.`);
+                                        pos.lastClaimCycle = false;
+                                        updatePosition(pos.positionPubKey, { lastClaimCycle: false });
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error(`[Monitor] Error checking auto-claim for ${pos.poolAddress}:`, e.message);
+                    }
+                }
             }
         }
         if (posCloseMode === "manual") continue;

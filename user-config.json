@@ -29,7 +29,7 @@
     "maxBundlingPercentage": 60,
     "requireLiquidityBurnt": true,
     "maxRugPercentage": 50,
-    "maxAthDropPercentage": 50
+    "maxAthDropPercentage": 40
   },
   "technicalFilters": {
     "supertrend": {
@@ -46,7 +46,11 @@
     }
   },
   "meteoraConfig": {
-    "solPerPosition": 1.1,
+    "autoClaimFees": {
+      "enabled": true,
+      "minClaimFeeUsd": 1
+    },
+    "solPerPosition": 1,
     "minSolToOpen": 1.2,
     "allowedQuoteTokens": [
       "SOL"
@@ -82,7 +86,7 @@
     "pnlCurrency": "USD"
   },
   "exitConfig": {
-    "minUsdDustValueToSwap": 0.2,
+    "minUsdDustValueToSwap": 0.5,
     "tpPercentage": 0,
     "slPercentage": 0,
     "maxHoldHours": 24,

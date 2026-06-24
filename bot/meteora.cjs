@@ -670,9 +670,51 @@ async function fetchMeteoraPositionDetails(walletAddress) {
     }
 }
 
+async function claimFees(connection, walletKeypair, poolAddress, positionPubKey, botMode = "live") {
+    console.log(`[Claim Fees] Initiating claim for position ${positionPubKey} in pool ${poolAddress}`);
+    if (botMode === "dry_run") {
+        console.log(`[DRY RUN] Claim fees simulated for ${positionPubKey}`);
+        return true;
+    }
+    
+    try {
+        const DLMM = require('@meteora-ag/dlmm').default || require('@meteora-ag/dlmm');
+        const dlmmPool = await DLMM.create(connection, new PublicKey(poolAddress), { cluster: "mainnet-beta" });
+        
+        const txs = await dlmmPool.claimSwapFee({
+            owner: walletKeypair.publicKey,
+            position: new PublicKey(positionPubKey),
+        });
+        
+        let success = true;
+        const mainTxs = Array.isArray(txs) ? txs : [txs];
+        const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 250000 });
+        
+        for (let i = 0; i < mainTxs.length; i++) {
+            const tx = mainTxs[i];
+            console.log(`[LIVE] Sending Claim TX ${i + 1}/${mainTxs.length}...`);
+            try {
+                if (typeof tx.add === 'function') tx.instructions.unshift(priorityFeeIx);
+                const txid = await rpcRetryWrapper(async () => {
+                    return await sendAndConfirmTransaction(connection, tx, [walletKeypair], { skipPreflight: true });
+                });
+                console.log(`[LIVE] Claim TX ${i + 1} confirmed: ${txid}`);
+            } catch (err) {
+                console.error(`[LIVE] Error confirming Claim TX ${i + 1}:`, err.message);
+                success = false;
+            }
+        }
+        return success;
+    } catch (e) {
+        console.error(`[Claim Fees Error] Failed to claim fees for ${positionPubKey}:`, e.message);
+        return false;
+    }
+}
+
 module.exports = {
     fetchMeteoraPools,
     addLiquidity,
     removeLiquidity,
-    fetchMeteoraPositionDetails
+    fetchMeteoraPositionDetails,
+    claimFees
 };
