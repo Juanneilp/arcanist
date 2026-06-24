@@ -267,14 +267,25 @@ async function openCommand(ctx) {
         const solBalanceLamports = await solCtx.connection.getBalance(solCtx.walletKeypair.publicKey);
         const solBalance = solBalanceLamports / 1e9;
         
-        if (solBalance < minSolToOpen) {
-            return ctx.reply(`❌ **Insufficient Balance**\nYour wallet balance is ${solBalance.toFixed(4)} SOL.\nMinimum required to open position (minSolToOpen) is ${minSolToOpen} SOL.`, { parse_mode: 'Markdown' });
-        }
-
         const gasReserve = config.meteoraConfig?.gasReserve || 0.1;
         const refundableReserve = config.meteoraConfig?.refundableReserve || 0.05;
-        const availableBalance = Math.max(0, solBalance - gasReserve - refundableReserve);
-        const solToDeploy = Math.min(investAmountSol, availableBalance);
+        const isExplicitAmount = parts.length >= 3;
+        
+        let solToDeploy;
+        
+        if (isExplicitAmount) {
+            const requiredBalance = investAmountSol + gasReserve + refundableReserve;
+            if (solBalance < requiredBalance) {
+                return ctx.reply(`❌ **Insufficient Balance**\nYou requested to invest ${investAmountSol} SOL.\nRequired balance including reserves: ~${requiredBalance.toFixed(4)} SOL.\nYour wallet balance is ${solBalance.toFixed(4)} SOL.`, { parse_mode: 'Markdown' });
+            }
+            solToDeploy = investAmountSol;
+        } else {
+            if (solBalance < minSolToOpen) {
+                return ctx.reply(`❌ **Insufficient Balance**\nYour wallet balance is ${solBalance.toFixed(4)} SOL.\nMinimum required to open position (minSolToOpen) is ${minSolToOpen} SOL.`, { parse_mode: 'Markdown' });
+            }
+            const availableBalance = Math.max(0, solBalance - gasReserve - refundableReserve);
+            solToDeploy = Math.min(investAmountSol, availableBalance);
+        }
 
         if (solToDeploy <= 0) {
             return ctx.reply(`❌ **Insufficient Balance for Reserves**\nYour wallet balance is ${solBalance.toFixed(4)} SOL.\nAfter deducting gas (${gasReserve}) and refundable (${refundableReserve}) reserves, available balance is too low.`, { parse_mode: 'Markdown' });
