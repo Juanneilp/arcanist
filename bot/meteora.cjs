@@ -111,13 +111,47 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
     const isWideRange = (maxBin - minBin > 69);
     console.log(`Creating liquidity transaction(s)... Wide Range: ${isWideRange}`);
 
+    let strategiesToExecute = [];
+    if (strategyOptions.type === 'mix') {
+        const configPath = path.join(__dirname, '..', 'user-config.json');
+        let mixedConf = [{ type: 'spot', percent: 50 }, { type: 'bid-ask', percent: 50 }];
+        try {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            if (config.meteoraConfig && config.meteoraConfig.mixedStrategies) {
+                mixedConf = config.meteoraConfig.mixedStrategies;
+            }
+        } catch(e) {}
+        
+        for (const strat of mixedConf) {
+            const ratio = (strat.percent || 50) / 100;
+            const lamportsPart = Math.floor(solLamports * ratio);
+            let partX = new BN(0), partY = new BN(0);
+            if (isSolX) partX = new BN(lamportsPart);
+            else partY = new BN(lamportsPart);
+            
+            strategiesToExecute.push({
+                type: strat.type,
+                xAmount: partX,
+                yAmount: partY,
+                lamports: lamportsPart
+            });
+        }
+    } else {
+        strategiesToExecute.push({
+            type: strategyOptions.type,
+            xAmount: newBalanceX,
+            yAmount: newBalanceY,
+            lamports: solLamports
+        });
+    }
+
     try {
         console.log(`[QUOTE] Checking for non-refundable costs...`);
         const quote = await dlmmPool.quoteCreatePosition({
             strategy: {
                 maxBinId: maxBin,
                 minBinId: minBin,
-                strategyType: resolveStrategyType(strategyOptions.type)
+                strategyType: resolveStrategyType(strategiesToExecute[0].type)
             }
         });
 
@@ -171,6 +205,7 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     currentBalanceSol: currentBalanceSol
                 };
             }
+            const firstStrat = strategiesToExecute[0];
             if (isWideRange) {
                 console.log(`[LIVE] Sending Create Extended Empty Position transaction(s)...`);
                 const createTxs = await dlmmPool.createExtendedEmptyPosition(
@@ -210,16 +245,16 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     });
                 }
 
-                console.log(`[LIVE] Sending Add Liquidity (Chunkable) transaction(s)...`);
+                console.log(`[LIVE] Sending Add Liquidity (Chunkable) transaction(s) for Strategy 1: ${firstStrat.type}...`);
                 const addTxs = await dlmmPool.addLiquidityByStrategyChunkable({
                     positionPubKey: newPositionKeypair.publicKey,
                     user: walletKeypair.publicKey,
-                    totalXAmount: newBalanceX,
-                    totalYAmount: newBalanceY,
+                    totalXAmount: firstStrat.xAmount,
+                    totalYAmount: firstStrat.yAmount,
                     strategy: {
                         maxBinId: maxBin,
                         minBinId: minBin,
-                        strategyType: resolveStrategyType(strategyOptions.type)
+                        strategyType: resolveStrategyType(firstStrat.type)
                     },
                     slippage: 10 // 10%
                 });
@@ -246,22 +281,64 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                 const createPositionTx = await dlmmPool.initializePositionAndAddLiquidityByStrategy({
                     positionPubKey: newPositionKeypair.publicKey,
                     user: walletKeypair.publicKey,
-                    totalXAmount: newBalanceX,
-                    totalYAmount: newBalanceY,
+                    totalXAmount: firstStrat.xAmount,
+                    totalYAmount: firstStrat.yAmount,
                     strategy: {
                         maxBinId: maxBin,
                         minBinId: minBin,
-                        strategyType: resolveStrategyType(strategyOptions.type)
+                        strategyType: resolveStrategyType(firstStrat.type)
                     },
                     slippage: 1000 // 10% in bps
                 });
 
-                console.log(`[LIVE] Sending Add Liquidity transaction...`);
+                console.log(`[LIVE] Sending Add Liquidity transaction for Strategy 1: ${firstStrat.type}...`);
                 if (typeof createPositionTx.add === 'function') createPositionTx.instructions.unshift(priorityFeeIx);
                 const txid = await rpcRetryWrapper(async () => {
                     return await sendAndConfirmTransaction(connection, createPositionTx, [walletKeypair, newPositionKeypair], { skipPreflight: true });
                 });
                 console.log(`[LIVE] Transaction Confirmed. TXID: ${txid}`);
+            }
+
+            for (let i = 1; i < strategiesToExecute.length; i++) {
+                const strat = strategiesToExecute[i];
+                console.log(`[LIVE] Sending additional Add Liquidity for Strategy ${i+1}: ${strat.type}...`);
+                try {
+                    const addTxs = await dlmmPool.addLiquidityByStrategyChunkable({
+                        positionPubKey: newPositionKeypair.publicKey,
+                        user: walletKeypair.publicKey,
+                        totalXAmount: strat.xAmount,
+                        totalYAmount: strat.yAmount,
+                        strategy: {
+                            maxBinId: maxBin,
+                            minBinId: minBin,
+                            strategyType: resolveStrategyType(strat.type)
+                        },
+                        slippage: 10
+                    });
+
+                    const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
+                    for (const tx of addTxArray) {
+                        if (typeof tx.add === 'function') tx.instructions.unshift(priorityFeeIx);
+                        const retryWrapper = async () => {
+                            let attempts = 0;
+                            while (attempts < 3) {
+                                try {
+                                    return await sendAndConfirmTransaction(connection, tx, [walletKeypair], { skipPreflight: true });
+                                } catch (e) {
+                                    attempts++;
+                                    console.log(`[LIVE] Add Liquidity retry ${attempts}/3 failed: ${e.message}`);
+                                    if (attempts >= 3) throw e;
+                                    await new Promise(r => setTimeout(r, 2000));
+                                }
+                            }
+                        };
+                        const txid = await retryWrapper();
+                        console.log(`[LIVE] Strategy ${i+1} (${strat.type}) Confirmed. TXID: ${txid}`);
+                    }
+                } catch (e) {
+                    console.error(`[LIVE] Failed to add liquidity for Strategy ${i+1} (${strat.type}):`, e.message);
+                    // Continue without aborting the whole position since the first part was already deployed
+                }
             }
         } else {
             console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);

@@ -46,7 +46,7 @@
     }
   },
   "meteoraConfig": {
-    "solPerPosition": 1,
+    "solPerPosition": 1.1,
     "minSolToOpen": 1.2,
     "allowedQuoteTokens": [
       "SOL"
@@ -59,7 +59,17 @@
     "maxFeePercent": 5,
     "minRange": -85,
     "maxRange": 1,
-    "strategyType": "spot",
+    "strategyType": "mix",
+    "mixedStrategies": [
+      {
+        "type": "spot",
+        "percent": 50
+      },
+      {
+        "type": "bid-ask",
+        "percent": 50
+      }
+    ],
     "allowOnlyYFees": true
   },
   "monitoringConfig": {

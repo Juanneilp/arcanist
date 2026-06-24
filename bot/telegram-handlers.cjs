@@ -1046,6 +1046,7 @@ async function settingsAction(ctx) {
             let next = 'spot';
             if (current === 'spot') next = 'curve';
             else if (current === 'curve') next = 'bid-ask';
+            else if (current === 'bid-ask') next = 'mix';
             
             config.meteoraConfig.strategyType = next;
         } else {
