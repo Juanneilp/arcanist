@@ -145,6 +145,12 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
         });
     }
 
+    console.log(`[INFO] Configured Strategies to Execute:`);
+    strategiesToExecute.forEach((s, idx) => {
+        const solVal = (s.lamports / 1e9).toFixed(4);
+        console.log(`  -> Strategy ${idx+1}: ${s.type} | Amount: ${solVal} SOL`);
+    });
+
     try {
         console.log(`[QUOTE] Checking for non-refundable costs...`);
         const quote = await dlmmPool.quoteCreatePosition({
@@ -245,7 +251,8 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     });
                 }
 
-                console.log(`[LIVE] Sending Add Liquidity (Chunkable) transaction(s) for Strategy 1: ${firstStrat.type}...`);
+                const firstSolVal = (firstStrat.lamports / 1e9).toFixed(4);
+                console.log(`[LIVE] Sending Add Liquidity (Chunkable) transaction(s) for Strategy 1: ${firstStrat.type} (${firstSolVal} SOL)...`);
                 const addTxs = await dlmmPool.addLiquidityByStrategyChunkable({
                     positionPubKey: newPositionKeypair.publicKey,
                     user: walletKeypair.publicKey,
@@ -291,7 +298,8 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
                     slippage: 1000 // 10% in bps
                 });
 
-                console.log(`[LIVE] Sending Add Liquidity transaction for Strategy 1: ${firstStrat.type}...`);
+                const firstSolVal = (firstStrat.lamports / 1e9).toFixed(4);
+                console.log(`[LIVE] Sending Add Liquidity transaction for Strategy 1: ${firstStrat.type} (${firstSolVal} SOL)...`);
                 if (typeof createPositionTx.add === 'function') createPositionTx.instructions.unshift(priorityFeeIx);
                 const txid = await rpcRetryWrapper(async () => {
                     return await sendAndConfirmTransaction(connection, createPositionTx, [walletKeypair, newPositionKeypair], { skipPreflight: true });
@@ -301,7 +309,8 @@ async function addLiquidity(connection, walletKeypair, poolAddressStr, solMint, 
 
             for (let i = 1; i < strategiesToExecute.length; i++) {
                 const strat = strategiesToExecute[i];
-                console.log(`[LIVE] Sending additional Add Liquidity for Strategy ${i+1}: ${strat.type}...`);
+                const stratSolVal = (strat.lamports / 1e9).toFixed(4);
+                console.log(`[LIVE] Sending additional Add Liquidity for Strategy ${i+1}: ${strat.type} (${stratSolVal} SOL)...`);
                 try {
                     const addTxs = await dlmmPool.addLiquidityByStrategyChunkable({
                         positionPubKey: newPositionKeypair.publicKey,
@@ -417,7 +426,7 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
 
             try {
                 if (hasLiquidity) {
-                    console.log(`[LIVE] Position has liquidity. Creating removeLiquidity transaction...`);
+                    console.log(`[LIVE] Position ${positionPubKeyStr} has liquidity. Creating removeLiquidity transaction...`);
                     const removeTx = await dlmmPool.removeLiquidity({
                         position: positionPubKey,
                         user: walletKeypair.publicKey,
@@ -428,7 +437,7 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                     });
                     mainTxs = Array.isArray(removeTx) ? removeTx : [removeTx];
                 } else {
-                    console.log(`[LIVE] No position liquidity detected. Creating closePosition transaction...`);
+                    console.log(`[LIVE] No liquidity detected in ${positionPubKeyStr}. Creating closePosition transaction...`);
                     const closeTx = await dlmmPool.closePosition({
                         owner: walletKeypair.publicKey,
                         position: { publicKey: positionPubKey }
@@ -596,8 +605,12 @@ async function removeLiquidity(connection, walletKeypair, poolAddressStr, positi
                 }
             }
 
-            console.log(`[LIVE] Successfully processed exit for position:`, txids);
-            return txids[txids.length - 1] || "success";
+            console.log(`[LIVE] Successfully processed exit and closed position: ${positionPubKeyStr}. TXIDs:`, txids);
+
+            return {
+                status: "success",
+                txids: txids
+            };
         } else {
             console.log(`[DRY RUN] Transaction building skipped to avoid simulation errors on dummy wallet.`);
         }
