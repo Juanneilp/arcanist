@@ -213,6 +213,9 @@ async function processCandidates(options = {}) {
                 const cleanTokenSymbol = token.symbol ? token.symbol.replace(/[_*`\[\]]/g, '') : 'Unknown';
                 const cleanAiReason = token.ai_reason ? token.ai_reason.replace(/[_*`\[\]]/g, '') : "Memenuhi syarat fundamental & Supertrend hijau";
                 
+                const { fetchMetricsForEntry } = require('./gmgn-client.cjs');
+                const metrics = await fetchMetricsForEntry(token.address);
+                
                 const newPos = {
                     positionPubKey: result.positionPubKey,
                     poolAddress: targetPool.address,
@@ -226,7 +229,8 @@ async function processCandidates(options = {}) {
                     maxBinId: result.maxBinId,
                     entryType: "auto",
                     entryReason: cleanAiReason,
-                    closeMode: "auto"
+                    closeMode: "auto",
+                    metrics: metrics
                 };
                 
                 addPosition(newPos);

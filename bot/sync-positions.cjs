@@ -118,6 +118,9 @@ async function syncManualPositions(connection, walletKeypair) {
                     console.log(`[Sync] Failed to fetch bin bounds:`, e.message);
                 }
 
+                const { fetchMetricsForEntry } = require('./gmgn-client.cjs');
+                const metrics = await fetchMetricsForEntry(tokenMintStr);
+
                 const newPos = {
                     positionPubKey: positionPubKeyStr,
                     poolAddress: lbPair.toBase58(),
@@ -131,10 +134,18 @@ async function syncManualPositions(connection, walletKeypair) {
                     entryPriceUsd: entryPriceUsd,
                     minBinId: minBinId,
                     maxBinId: maxBinId,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    metrics: metrics
                 };
                 
                 addPosition(newPos);
+                
+                const { logTrade } = require('./state.cjs');
+                logTrade('ENTRY', {
+                    ...newPos,
+                    entryReason: "Manual open from Meteora/Web"
+                });
+                
                 syncedPositions.push(newPos);
                 addedCount++;
                 console.log(`[Sync] Injected manual position: ${positionPubKeyStr} for token ${tokenSymbol}`);

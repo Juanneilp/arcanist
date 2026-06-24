@@ -346,6 +346,10 @@ async function openCommand(ctx) {
         if (positionResult) {
             const posPubKey = typeof positionResult === 'string' ? positionResult : (positionResult.positionPubKey || positionResult.status || "Unknown");
             const tokenSymbol = bestPool.symbol_x && bestPool.symbol_y ? `${bestPool.symbol_x}-${bestPool.symbol_y}` : "MANUAL_ENTRY";
+            
+            const { fetchMetricsForEntry } = require('./gmgn-client.cjs');
+            const metrics = await fetchMetricsForEntry(tokenMint);
+            
             addPosition({
                 tokenMint: tokenMint,
                 tokenSymbol: tokenSymbol,
@@ -355,7 +359,8 @@ async function openCommand(ctx) {
                 openedBy: 'manual',
                 entryType: 'telegram',
                 entryReason: "Manual open from Telegram",
-                closeMode: "auto"
+                closeMode: "auto",
+                metrics: metrics
             });
             
             logTrade('ENTRY', {
@@ -364,7 +369,8 @@ async function openCommand(ctx) {
                 poolAddress: bestPool.poolAddress,
                 positionPubKey: posPubKey,
                 investedSol: solToDeploy,
-                entryReason: "Manual open from Telegram"
+                entryReason: "Manual open from Telegram",
+                metrics: metrics
             });
             
             let successMsg = `🎉 *Position Opened!*\n`;
@@ -440,7 +446,9 @@ async function closeCommand(ctx) {
         const txid = await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
         
         removePosition(pos.positionPubKey);
-        logTrade('EXIT', { ...pos, reason: "Manual close from Telegram", pnlUsd: finalPnlUsd, pnlPct: finalPnlPct, pnlSol: finalPnlSol });
+        const { fetchMetricsForEntry } = require('./gmgn-client.cjs');
+        const exitMetrics = await fetchMetricsForEntry(pos.tokenMint).catch(()=>({}));
+        logTrade('EXIT', { ...pos, reason: "Manual close from Telegram", pnlUsd: finalPnlUsd, pnlPct: finalPnlPct, pnlSol: finalPnlSol, exitMetrics });
         const statusStr = typeof txid === 'string' ? txid : (txid && txid.status ? txid.status : 'success');
         
         let pnlMsg = "";
@@ -558,7 +566,9 @@ async function confirmCloseAllAction(ctx) {
                 await removeLiquidity(solCtx.connection, solCtx.walletKeypair, pos.poolAddress, pos.positionPubKey, botMode);
                 removePosition(pos.positionPubKey);
                 closedPubKeys.add(pos.positionPubKey);
-                logTrade('EXIT', { ...pos, reason: "Manual close_all from Telegram", pnlUsd: finalPnlUsd, pnlPct: finalPnlPct, pnlSol: finalPnlSol });
+                const { fetchMetricsForEntry } = require('./gmgn-client.cjs');
+                const exitMetrics = await fetchMetricsForEntry(pos.tokenMint).catch(()=>({}));
+                logTrade('EXIT', { ...pos, reason: "Manual close_all from Telegram", pnlUsd: finalPnlUsd, pnlPct: finalPnlPct, pnlSol: finalPnlSol, exitMetrics });
                 
                 let pnlMsg = "";
                 if (finalPnlUsd !== undefined) {

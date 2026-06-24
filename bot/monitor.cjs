@@ -314,13 +314,16 @@ async function monitoringLoop(connection, walletKeypair) {
                 if (exitResult === "already_closed") {
                     console.log(`[Monitor] Position ${pos.positionPubKey} already closed on-chain. Cleaning up state.`);
                     removePosition(pos.positionPubKey);
+                    const { fetchMetricsForEntry } = require('./gmgn-client.cjs');
+                    const exitMetrics = await fetchMetricsForEntry(pos.tokenMint).catch(()=>({}));
                     logTrade('EXIT', {
                         ...pos,
                         reason: "Position already closed on-chain (auto-cleanup)",
                         reclaimedSol: 0,
                         pnlUsd: finalPnlUsd,
                         pnlPct: finalPnlPct,
-                        pnlSol: finalPnlSol
+                        pnlSol: finalPnlSol,
+                        exitMetrics
                     });
                     sendMessage(`ℹ️ Position ${cleanTokenSymbol} sudah closed on-chain. State dibersihkan.`);
                     continue;
@@ -351,13 +354,16 @@ async function monitoringLoop(connection, walletKeypair) {
                     }
                 }
 
+                const { fetchMetricsForEntry } = require('./gmgn-client.cjs');
+                const exitMetrics = await fetchMetricsForEntry(pos.tokenMint).catch(()=>({}));
                 logTrade('EXIT', {
                     ...pos,
                     reason: exitData.reason,
                     reclaimedSol,
                     pnlUsd: finalPnlUsd,
                     pnlPct: finalPnlPct,
-                    pnlSol: finalPnlSol
+                    pnlSol: finalPnlSol,
+                    exitMetrics
                 });
             } catch (e) {
                 const safeErrMsg = e.message.replace(/[_*`\[\]]/g, '');

@@ -323,6 +323,44 @@ async function getTokenFeesSol(mint) {
     }
 }
 
+/**
+ * Fetch token metrics for trade history logging
+ * @param {string} mint - token mint address
+ * @returns {Promise<Object>}
+ */
+async function fetchMetricsForEntry(mint) {
+    if (!mint || !hasApiKey()) return {};
+    let metrics = {};
+    try {
+        const infoRaw = await getTokenInfo('sol', mint);
+        if (infoRaw && typeof infoRaw === 'object') {
+            const info = infoRaw.data || infoRaw;
+            metrics.marketCap = num(info.market_cap);
+            metrics.volume24h = num(info.volume_24h) || num(info.volume);
+            metrics.holders = num(info.holder_count);
+            if (info.creation_timestamp) {
+                metrics.tokenAgeHours = (Date.now() - info.creation_timestamp * 1000) / 3600000;
+            }
+            metrics.smartDegenCount = num(info.smart_degen_count) || num(info.smart_degens_count) || 0;
+            metrics.totalFees = num(info.total_fee);
+        }
+        
+        const secRaw = await getTokenSecurity('sol', mint);
+        if (secRaw && typeof secRaw === 'object') {
+            const sec = secRaw.data || secRaw;
+            if (sec.top10_holder_rate !== undefined) metrics.top10Percentage = num(sec.top10_holder_rate) * 100;
+            if (sec.creator_percentage !== undefined) metrics.devHoldsPercentage = num(sec.creator_percentage) * 100;
+            if (sec.insider_percentage !== undefined) metrics.insiderPercentage = num(sec.insider_percentage) * 100;
+            metrics.liquidityBurnt = !!(sec.is_lp_burned || (sec.lp_burned_perc && num(sec.lp_burned_perc) > 0.9));
+            if (sec.rug_ratio !== undefined) metrics.rugPercentage = num(sec.rug_ratio) * 100;
+            if (sec.buy_tax !== undefined) metrics.bundlingPercentage = num(sec.buy_tax) * 100;
+        }
+    } catch (err) {
+        console.error(`[gmgn-client] fetchMetricsForEntry failed for ${String(mint).slice(0, 8)}: ${err.message}`);
+    }
+    return metrics;
+}
+
 module.exports = {
     getTrending,
     getKline,
@@ -331,5 +369,6 @@ module.exports = {
     getTokenTopHolders,
     getTokenTopTraders,
     getTokenFeesSol,
+    fetchMetricsForEntry,
     hasApiKey,
 };
