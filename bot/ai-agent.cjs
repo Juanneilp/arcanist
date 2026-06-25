@@ -161,7 +161,21 @@ async function screenCandidates(candidates, maxLimit) {
                 is_lp_burnt: c.is_lp_burnt !== undefined ? c.is_lp_burnt : "Unknown"
             }));
 
-            const promptText = `
+            let promptText = "";
+            if (normalCandidates.length <= remainingSlots) {
+                promptText = `
+I have ${normalCandidates.length} token candidate(s). Please analyze them and select the ones that are good based on the strategy. You can select up to ${normalCandidates.length} tokens, or fewer if some are bad.
+
+CRITICAL RANKING RULE:
+You MUST prioritize tokens based on the 'rankingScoringSystem' from your Core Mindset. Focus on ATH Breakouts, Volume Momentum, and Safety Metrics (LP Burnt, Low Top 10 Holders).
+
+Return ONLY a valid JSON array of objects. Each object MUST have exactly two fields: "address" (the token address) and "ai_reason" (string explaining in Indonesian why it was chosen based on the strategy, max 2 sentences). Do not include markdown formatting like \`\`\`json.
+
+Candidates:
+${JSON.stringify(essentialCandidates, null, 2)}
+`;
+            } else {
+                promptText = `
 I have ${normalCandidates.length} token candidates, but I can only enter ${remainingSlots} positions. 
 Please analyze the following candidates and select the best ${remainingSlots}.
 
@@ -173,6 +187,7 @@ Return ONLY a valid JSON array of objects, sorted from best to worst. Each objec
 Candidates:
 ${JSON.stringify(essentialCandidates, null, 2)}
 `;
+            }
 
             const messages = [
                 { role: "system", content: systemPrompt },
@@ -202,12 +217,10 @@ ${JSON.stringify(essentialCandidates, null, 2)}
                         }
                     }
                 } else {
-                    console.warn("AI returned malformed selection or no match. Falling back to simple slice.");
-                    finalSelection.push(...normalCandidates.slice(0, remainingSlots));
+                    console.warn("AI returned malformed selection or no match. Skipping these candidates.");
                 }
             } catch (e) {
-                console.error("AI screening failed. Falling back to simple slice.", e.message);
-                finalSelection.push(...normalCandidates.slice(0, remainingSlots));
+                console.error("AI screening failed. Skipping these candidates.", e.message);
             }
     }
     return finalSelection.slice(0, maxLimit);

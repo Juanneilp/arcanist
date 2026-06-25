@@ -41,11 +41,13 @@ async function processCandidates(options = {}) {
         c.is_active_position = activeMints.includes(c.address);
     });
     
+    const unheldCandidates = candidates.filter(c => !c.is_active_position);
+    
     const availableSlots = autoEntry ? (maxPositions - uniquePositions.length) : maxPositions;
     const requestedAiLimit = Math.max(3, availableSlots + uniquePositions.length);
     
-    if (candidates.length > 0) {
-        sendMessage(`🔍 Found ${candidates.length} candidates. Requesting Hermes AI screening...`);
+    if (unheldCandidates.length > 0) {
+        sendMessage(`🔍 Found ${candidates.length} candidates (${unheldCandidates.length} new). Requesting Hermes AI screening...`);
         // AI Screening
         candidates = await screenCandidates(candidates, requestedAiLimit);
         
