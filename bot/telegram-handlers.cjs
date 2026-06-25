@@ -3,6 +3,7 @@ const fs = require('fs');
 const { Markup } = require('telegraf');
 const bs58 = require('bs58').default || require('bs58');
 const { Keypair, Connection } = require('@solana/web3.js');
+const { exec } = require('child_process');
 
 // Helper to setup solana connections
 function setupSolanaContext() {
@@ -1005,7 +1006,8 @@ function buildSettingsKeyboard(config) {
         [Markup.button.callback(`Min Bin: ${meteora.minBinStep || 0}`, 'set_param_minBinStep'), Markup.button.callback(`Max Bin: ${meteora.maxBinStep || 100}`, 'set_param_maxBinStep')],
         [Markup.button.callback(`Min Fee: ${meteora.minFeePercent || 0}%`, 'set_param_minFeePercent'), Markup.button.callback(`Max Fee: ${meteora.maxFeePercent || 5}%`, 'set_param_maxFeePercent')],
         [Markup.button.callback(`Min Range: ${meteora.minRange || 0}`, 'set_param_minRange'), Markup.button.callback(`Max Range: ${meteora.maxRange || 1}`, 'set_param_maxRange')],
-        [Markup.button.callback(`Only Y Fees: ${meteora.allowOnlyYFees !== false ? '✅ Yes' : '❌ No'}`, 'set_param_allowOnlyYFees')]
+        [Markup.button.callback(`Only Y Fees: ${meteora.allowOnlyYFees !== false ? '✅ Yes' : '❌ No'}`, 'set_param_allowOnlyYFees')],
+        [Markup.button.callback(`▶️ Start Bot`, 'sys_pm2_start'), Markup.button.callback(`⏹️ Stop Bot`, 'sys_pm2_stop'), Markup.button.callback(`🔄 Restart`, 'sys_pm2_restart')]
     ]);
 }
 
@@ -1107,6 +1109,45 @@ async function textHandler(ctx) {
     }
 }
 
+async function pm2StartAction(ctx) {
+    try {
+        await ctx.answerCbQuery("Starting PM2 arcanist...");
+        exec('pm2 start arcanist', (error, stdout, stderr) => {
+            if (error) {
+                ctx.reply("❌ Error starting arcanist: " + error.message);
+                return;
+            }
+            ctx.reply("✅ Successfully executed: pm2 start arcanist");
+        });
+    } catch (e) {
+        ctx.reply("❌ " + e.message);
+    }
+}
+
+async function pm2StopAction(ctx) {
+    try {
+        await ctx.answerCbQuery("Stopping PM2 arcanist...");
+        ctx.reply("⚠️ Stopping arcanist bot via PM2. Bot will go offline and you will NOT be able to start it from Telegram anymore!");
+        setTimeout(() => {
+            exec('pm2 stop arcanist', (error, stdout, stderr) => {});
+        }, 2000);
+    } catch (e) {
+        ctx.reply("❌ " + e.message);
+    }
+}
+
+async function pm2RestartAction(ctx) {
+    try {
+        await ctx.answerCbQuery("Restarting PM2 arcanist...");
+        ctx.reply("🔄 Restarting arcanist bot via PM2. Bot will be offline for a few seconds.");
+        setTimeout(() => {
+            exec('pm2 restart arcanist --update-env', (error, stdout, stderr) => {});
+        }, 2000);
+    } catch (e) {
+        ctx.reply("❌ " + e.message);
+    }
+}
+
 module.exports = {
     authGuard,
     sendPositionsCommand,
@@ -1128,5 +1169,8 @@ module.exports = {
     currencyCommand,
     settingsCommand,
     settingsAction,
-    textHandler
+    textHandler,
+    pm2StartAction,
+    pm2StopAction,
+    pm2RestartAction
 };

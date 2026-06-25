@@ -53,6 +53,9 @@ if (token && token !== 'your_telegram_bot_token') {
     bot.action('confirm_close_all', handlers.authGuard, handlers.confirmCloseAllAction);
     bot.action('cancel_close_all', handlers.authGuard, handlers.cancelCloseAllAction);
     bot.action(/^set_param_(.+)$/, handlers.authGuard, handlers.settingsAction);
+    bot.action('sys_pm2_start', handlers.authGuard, handlers.pm2StartAction);
+    bot.action('sys_pm2_stop', handlers.authGuard, handlers.pm2StopAction);
+    bot.action('sys_pm2_restart', handlers.authGuard, handlers.pm2RestartAction);
 
     // Text Handler for settings input
     bot.on('text', handlers.authGuard, handlers.textHandler);
