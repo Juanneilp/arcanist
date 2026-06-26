@@ -31,7 +31,10 @@ async function callOpenRouter(messages, model, baseUrl = "https://openrouter.ai/
             }
             
             const data = await response.json();
-            return data.choices[0].message.content;
+            if (!data.choices || data.choices.length === 0 || !data.choices[0].message) {
+                throw new Error("Invalid response structure from AI API: " + JSON.stringify(data));
+            }
+            return data.choices[0].message.content || "";
         } catch (e) {
             console.warn(`[AI API] Attempt ${attempt}/${retries} failed: ${e.message}`);
             if (attempt === retries) throw e;
@@ -125,12 +128,12 @@ async function screenCandidates(candidates, maxLimit) {
     let promptText = "";
     if (candidates.length <= maxLimit) {
         promptText = `
-I have ${candidates.length} token candidate(s). Please analyze them and select the ones that are good based on the strategy. You can select up to ${candidates.length} tokens, or fewer if some are bad.
+I have ${candidates.length} token candidate(s). Please analyze and SORT ALL of them from BEST to WORST based on the strategy. You MUST return EXACTLY ${candidates.length} tokens in the JSON array.
 
 CRITICAL RANKING RULE:
 You MUST prioritize tokens based on the 'rankingScoringSystem' from your Core Mindset. Focus on ATH Breakouts, Volume Momentum, and Safety Metrics (LP Burnt, Low Top 10 Holders).
 
-Return ONLY a valid JSON array of objects. Each object MUST have exactly two fields: "address" (the token address) and "ai_reason" (string explaining in Indonesian why it was chosen based on the strategy, max 2 sentences). Do not include markdown formatting like \`\`\`json.
+Return ONLY a valid JSON array of objects, sorted from best to worst. Each object MUST have exactly two fields: "address" (the token address) and "ai_reason" (string explaining in Indonesian why it was ranked at this position based on the strategy, max 2 sentences). Do not include markdown formatting like \`\`\`json.
 
 Candidates:
 ${JSON.stringify(essentialCandidates, null, 2)}
@@ -138,7 +141,7 @@ ${JSON.stringify(essentialCandidates, null, 2)}
     } else {
         promptText = `
 I have ${candidates.length} token candidates, but I can only enter ${maxLimit} positions. 
-Please analyze the following candidates and select the best ${maxLimit}.
+Please analyze the candidates and select the best ${maxLimit}, sorted from best to worst. You MUST return EXACTLY ${maxLimit} tokens in the JSON array.
 
 CRITICAL RANKING RULE:
 You MUST prioritize tokens based on the 'rankingScoringSystem' from your Core Mindset. Focus on ATH Breakouts, Volume Momentum, and Safety Metrics (LP Burnt, Low Top 10 Holders).
@@ -159,6 +162,10 @@ ${JSON.stringify(essentialCandidates, null, 2)}
     try {
         console.log(`Asking AI (${model} via ${baseUrl}) to screen ${candidates.length} candidates down to ${maxLimit}...`);
         let responseContent = await callOpenRouter(messages, model, baseUrl);
+        
+        if (!responseContent) {
+            throw new Error("AI returned empty or null response");
+        }
         
         responseContent = responseContent.replace(/```json/g, '').replace(/```/g, '').trim();
         let selected;
