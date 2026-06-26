@@ -75,96 +75,57 @@ async function screenCandidates(candidates, maxLimit) {
         return candidates; 
     }
     
-    // 1. Prioritize ATH Candidates
-    const athCandidates = candidates.filter(c => c.is_new_ath);
-    let normalCandidates = candidates.filter(c => !c.is_new_ath);
-    
-    let finalSelection = [];
-    
-    if (athCandidates.length > 0) {
-        console.log(`[AI-Agent] Found ${athCandidates.length} ATH candidate(s). Prioritizing them...`);
-        athCandidates.forEach(c => {
-            if (!c.ai_reason) c.ai_reason = "🚀 Terdeteksi Breakout New ATH! (Prioritas Utama)";
-        });
-        
-        // Sort ATH candidates by volume change percent just in case there are multiple
-        athCandidates.sort((a, b) => (b.volumeChangePercent || 0) - (a.volumeChangePercent || 0));
-        finalSelection.push(...athCandidates.slice(0, maxLimit));
+    const configPath = path.join(__dirname, '..', 'user-config.json');
+    let config = {};
+    try {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } catch (e) {
+        console.warn("Could not read user-config.json for AI settings.");
     }
     
-    const remainingSlotsAfterATH = maxLimit - finalSelection.length;
-    
-    // 2. Prioritize Best Volume Trend (only if enabled and data is available)
-    // We check if at least one candidate has volumeChangePercent defined
-    const hasVolumeTrendData = normalCandidates.some(c => c.volumeChangePercent !== undefined);
-    
-    if (remainingSlotsAfterATH > 0 && normalCandidates.length > 0 && hasVolumeTrendData) {
-        normalCandidates.sort((a, b) => (b.volumeChangePercent || 0) - (a.volumeChangePercent || 0));
-        
-        // Take the top volume trend candidate
-        const bestVolCandidate = normalCandidates.shift(); // removes and returns the first element
-        console.log(`[AI-Agent] Prioritizing Best Volume Trend candidate: ${bestVolCandidate.symbol} (${bestVolCandidate.volumeChangePercent?.toFixed(2)}%)`);
-        
-        if (!bestVolCandidate.ai_reason) {
-            bestVolCandidate.ai_reason = `🌊 Volume Trend Terbaik (${bestVolCandidate.volumeChangePercent?.toFixed(1)}% Spike). (Prioritas Otomatis)`;
+    let mindsetData = "";
+    try {
+        const mindsetPath = path.join(__dirname, '..', 'hermes-mindset.json');
+        if (fs.existsSync(mindsetPath)) {
+            mindsetData = fs.readFileSync(mindsetPath, 'utf-8');
         }
-        finalSelection.push(bestVolCandidate);
+    } catch (e) {
+        console.warn("Could not read hermes-mindset.json.");
+    }
+
+    const model = process.env.AI_MODEL || config.aiConfig?.model || "nousresearch/hermes-3-llama-3.1-405b";
+    const baseUrl = process.env.AI_BASE_URL || config.aiConfig?.baseUrl || "https://openrouter.ai/api/v1";
+    let systemPrompt = config.aiConfig?.systemPrompt || "You are Hermes Agent, an elite crypto trading analyst.";
+    
+    if (mindsetData) {
+        systemPrompt += `\n\n=== HERMES AI CORE MINDSET & STRATEGY ===\n${mindsetData}\n=========================================\n`;
+        systemPrompt += `Please strictly apply the coreStrategy and rankingScoringSystem defined above when evaluating candidates.`;
     }
     
-    const remainingSlots = maxLimit - finalSelection.length;
-    
-    if (remainingSlots > 0 && normalCandidates.length > 0) {
-            const configPath = path.join(__dirname, '..', 'user-config.json');
-            let config = {};
-            try {
-                config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-            } catch (e) {
-                console.warn("Could not read user-config.json for AI settings.");
-            }
-            
-            let mindsetData = "";
-            try {
-                const mindsetPath = path.join(__dirname, '..', 'hermes-mindset.json');
-                if (fs.existsSync(mindsetPath)) {
-                    mindsetData = fs.readFileSync(mindsetPath, 'utf-8');
-                }
-            } catch (e) {
-                console.warn("Could not read hermes-mindset.json.");
-            }
+    // Reduce payload size to prevent 504 timeouts
+    const essentialCandidates = candidates.map(c => ({
+        name: c.name,
+        symbol: c.symbol,
+        address: c.address,
+        price: c.price,
+        volume: c.volume,
+        market_cap: c.market_cap,
+        history_highest_market_cap: c.history_highest_market_cap,
+        holder_count: c.holder_count,
+        smart_degen_count: c.smart_degen_count,
+        is_honeypot: c.is_honeypot,
+        volume_trend: c.volumeTrend,
+        volume_change_percent: c.volumeChangePercent,
+        is_new_ath: c.is_new_ath,
+        top_10_holder_percent: c.top_10_holder_percent || "Unknown",
+        dev_holds_percent: c.dev_holds_percent || "Unknown",
+        is_lp_burnt: c.is_lp_burnt !== undefined ? c.is_lp_burnt : "Unknown"
+    }));
 
-            const model = process.env.AI_MODEL || config.aiConfig?.model || "nousresearch/hermes-3-llama-3.1-405b";
-            const baseUrl = process.env.AI_BASE_URL || config.aiConfig?.baseUrl || "https://openrouter.ai/api/v1";
-            let systemPrompt = config.aiConfig?.systemPrompt || "You are Hermes Agent, an elite crypto trading analyst.";
-            
-            if (mindsetData) {
-                systemPrompt += `\n\n=== HERMES AI CORE MINDSET & STRATEGY ===\n${mindsetData}\n=========================================\n`;
-                systemPrompt += `Please strictly apply the coreStrategy and rankingScoringSystem defined above when evaluating candidates.`;
-            }
-            
-            // Reduce payload size to prevent 504 timeouts
-            const essentialCandidates = normalCandidates.map(c => ({
-                name: c.name,
-                symbol: c.symbol,
-                address: c.address,
-                price: c.price,
-                volume: c.volume,
-                market_cap: c.market_cap,
-                history_highest_market_cap: c.history_highest_market_cap,
-                holder_count: c.holder_count,
-                smart_degen_count: c.smart_degen_count,
-                is_honeypot: c.is_honeypot,
-                volume_trend: c.volumeTrend,
-                volume_change_percent: c.volumeChangePercent,
-                is_new_ath: c.is_new_ath,
-                top_10_holder_percent: c.top_10_holder_percent || "Unknown",
-                dev_holds_percent: c.dev_holds_percent || "Unknown",
-                is_lp_burnt: c.is_lp_burnt !== undefined ? c.is_lp_burnt : "Unknown"
-            }));
-
-            let promptText = "";
-            if (normalCandidates.length <= remainingSlots) {
-                promptText = `
-I have ${normalCandidates.length} token candidate(s). Please analyze them and select the ones that are good based on the strategy. You can select up to ${normalCandidates.length} tokens, or fewer if some are bad.
+    let promptText = "";
+    if (candidates.length <= maxLimit) {
+        promptText = `
+I have ${candidates.length} token candidate(s). Please analyze them and select the ones that are good based on the strategy. You can select up to ${candidates.length} tokens, or fewer if some are bad.
 
 CRITICAL RANKING RULE:
 You MUST prioritize tokens based on the 'rankingScoringSystem' from your Core Mindset. Focus on ATH Breakouts, Volume Momentum, and Safety Metrics (LP Burnt, Low Top 10 Holders).
@@ -174,10 +135,10 @@ Return ONLY a valid JSON array of objects. Each object MUST have exactly two fie
 Candidates:
 ${JSON.stringify(essentialCandidates, null, 2)}
 `;
-            } else {
-                promptText = `
-I have ${normalCandidates.length} token candidates, but I can only enter ${remainingSlots} positions. 
-Please analyze the following candidates and select the best ${remainingSlots}.
+    } else {
+        promptText = `
+I have ${candidates.length} token candidates, but I can only enter ${maxLimit} positions. 
+Please analyze the following candidates and select the best ${maxLimit}.
 
 CRITICAL RANKING RULE:
 You MUST prioritize tokens based on the 'rankingScoringSystem' from your Core Mindset. Focus on ATH Breakouts, Volume Momentum, and Safety Metrics (LP Burnt, Low Top 10 Holders).
@@ -187,42 +148,51 @@ Return ONLY a valid JSON array of objects, sorted from best to worst. Each objec
 Candidates:
 ${JSON.stringify(essentialCandidates, null, 2)}
 `;
-            }
-
-            const messages = [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: promptText }
-            ];
-            
-            try {
-                console.log(`Asking AI (${model} via ${baseUrl}) to screen ${normalCandidates.length} candidates down to ${remainingSlots}...`);
-                let responseContent = await callOpenRouter(messages, model, baseUrl);
-                
-                responseContent = responseContent.replace(/```json/g, '').replace(/```/g, '').trim();
-                let selected;
-                try {
-                    selected = JSON.parse(responseContent);
-                } catch (parseError) {
-                    console.error("AI JSON parse failed. Raw response:", responseContent.substring(0, 500));
-                    console.error("Parse error:", parseError.message);
-                    throw parseError;
-                }
-                
-                if (Array.isArray(selected) && selected.length > 0) {
-                    for (const sel of selected) {
-                        const original = normalCandidates.find(c => c.address === sel.address);
-                        if (original) {
-                            original.ai_reason = sel.ai_reason;
-                            finalSelection.push(original);
-                        }
-                    }
-                } else {
-                    console.warn("AI returned malformed selection or no match. Skipping these candidates.");
-                }
-            } catch (e) {
-                console.error("AI screening failed. Skipping these candidates.", e.message);
-            }
     }
+
+    const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: promptText }
+    ];
+    
+    let finalSelection = [];
+    try {
+        console.log(`Asking AI (${model} via ${baseUrl}) to screen ${candidates.length} candidates down to ${maxLimit}...`);
+        let responseContent = await callOpenRouter(messages, model, baseUrl);
+        
+        responseContent = responseContent.replace(/```json/g, '').replace(/```/g, '').trim();
+        let selected;
+        try {
+            selected = JSON.parse(responseContent);
+        } catch (parseError) {
+            console.error("AI JSON parse failed. Raw response:", responseContent.substring(0, 500));
+            console.error("Parse error:", parseError.message);
+            throw parseError;
+        }
+        
+        if (Array.isArray(selected) && selected.length > 0) {
+            for (const sel of selected) {
+                const original = candidates.find(c => c.address === sel.address);
+                if (original) {
+                    original.ai_reason = sel.ai_reason;
+                    finalSelection.push(original);
+                }
+            }
+        } else {
+            console.warn("AI returned malformed selection or no match. Falling back to default order.");
+            finalSelection = candidates.slice(0, maxLimit);
+            finalSelection.forEach(c => {
+                if (!c.ai_reason) c.ai_reason = "⚠️ AI mengembalikan format yang salah, fallback ke urutan scraper.";
+            });
+        }
+    } catch (e) {
+        console.error("AI screening failed. Falling back to default order.", e.message);
+        finalSelection = candidates.slice(0, maxLimit);
+        finalSelection.forEach(c => {
+            if (!c.ai_reason) c.ai_reason = "⚠️ AI API Error/Timeout, fallback ke urutan scraper.";
+        });
+    }
+    
     return finalSelection.slice(0, maxLimit);
 }
 

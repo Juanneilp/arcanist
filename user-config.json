@@ -47,11 +47,11 @@
   },
   "meteoraConfig": {
     "autoClaimFees": {
-      "enabled": true,
+      "enabled": false,
       "minClaimFeeUsd": 1
     },
-    "solPerPosition": 1,
-    "minSolToOpen": 1.2,
+    "solPerPosition": 0.7,
+    "minSolToOpen": 0.5,
     "allowedQuoteTokens": [
       "SOL"
     ],
@@ -80,7 +80,7 @@
     "checkIntervalSeconds": 30,
     "monitoringIntervalMinutes": 20,
     "scraperIntervalMinutes": 5,
-    "maxActivePositions": 2,
+    "maxActivePositions": 1,
     "entryMode": "auto",
     "closeMode": "auto",
     "pnlCurrency": "USD"
@@ -109,9 +109,9 @@
     }
   },
   "aiConfig": {
-    "provider": "bluesminds",
-    "baseUrl": "https://api.bluesminds.com/v1",
-    "model": "gpt-5.5",
+    "provider": "openrouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "model": "deepseek/deepseek-v4-flash",
     "systemPrompt": "You are Hermes Agent, an elite crypto trading analyst. Evaluate the provided candidates based on fundamental and technical metrics and select the best ones up to the requested maximum. Output only valid JSON format."
   }
 }
